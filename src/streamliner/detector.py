@@ -74,6 +74,9 @@ class HighlightDetector:
         ]
         return np.array(rms_values)
 
+    # Dentro de la clase HighlightDetector en src/streamliner/detector.py
+    # Reemplaza la función find_highlights completa con esta.
+
     async def find_highlights(
         self, audio_path_str: str, video_duration_sec: float
     ) -> list[dict]:
@@ -111,7 +114,7 @@ class HighlightDetector:
         # --- PASO 3: Análisis Enfocado - Transcribir solo los segmentos candidatos ---
         candidate_highlights = []
         for peak_idx in candidate_peaks:
-            center_timestamp = peak_idx  # Cada índice es un segundo
+            center_timestamp = peak_idx
             start_time = max(
                 0, center_timestamp - self.config.clip_duration_seconds / 2
             )
@@ -122,20 +125,17 @@ class HighlightDetector:
 
             segment_audio_path = None
             try:
-                # Extraer este pequeño segmento para analizarlo
                 segment_audio_path = await self._extract_audio_segment(
                     audio_path, start_time, end_time
                 )
                 if not segment_audio_path:
                     continue
 
-                # Transcribir SOLO este pequeño segmento
                 transcription = await self.transcriber.transcribe(segment_audio_path)
                 logger.debug(
                     f"Texto del segmento transcrito: '{transcription['text']}'"
                 )
 
-                # Calcular score de palabras clave para este segmento
                 keyword_score = 0
                 for segment in transcription["segments"]:
                     text = segment["text"].lower()
@@ -143,11 +143,9 @@ class HighlightDetector:
                         if keyword in text:
                             keyword_score += weight
 
-                # Combinar scores
                 final_hype_score = (
                     normalized_rms[peak_idx] * self.config.scoring.rms_weight
-                    + (keyword_score / 10)
-                    * self.config.scoring.keyword_weight  # Normalización simple
+                    + keyword_score * self.config.scoring.keyword_weight
                 )
 
                 if final_hype_score >= self.config.hype_score_threshold:
@@ -163,7 +161,6 @@ class HighlightDetector:
                     )
 
             finally:
-                # Limpiar el archivo de audio temporal del segmento
                 if segment_audio_path and os.path.exists(segment_audio_path):
                     os.remove(segment_audio_path)
 
