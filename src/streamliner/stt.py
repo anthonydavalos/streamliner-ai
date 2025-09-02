@@ -6,25 +6,31 @@ from faster_whisper import WhisperModel
 from loguru import logger
 from .config import TranscriptionConfig
 
+
 class Transcriber:
     """
     Un wrapper alrededor de faster-whisper para realizar la transcripción de audio.
     Carga el modelo una vez y lo reutiliza para múltiples transcripciones.
     """
+
     def __init__(self, config: TranscriptionConfig):
         self.config = config
-        logger.info(f"Cargando modelo de Whisper '{config.whisper_model}' en '{config.device}'...")
-        
+        logger.info(
+            f"Cargando modelo de Whisper '{config.whisper_model}' en '{config.device}'..."
+        )
+
         try:
             self.model = WhisperModel(
                 config.whisper_model,
                 device=config.device,
-                compute_type=config.compute_type
+                compute_type=config.compute_type,
             )
             logger.success("Modelo de Whisper cargado exitosamente.")
         except Exception as e:
             logger.error(f"No se pudo cargar el modelo de Whisper: {e}")
-            logger.error("Asegúrate de tener las dependencias correctas para tu hardware (CPU/GPU).")
+            logger.error(
+                "Asegúrate de tener las dependencias correctas para tu hardware (CPU/GPU)."
+            )
             # En un caso real, podríamos querer salir del programa si el modelo no carga.
             raise
 
@@ -43,17 +49,19 @@ class Transcriber:
             segments, info = self.model.transcribe(
                 str(audio_path),
                 beam_size=5,
-                word_timestamps=True # Importante para análisis futuros
+                word_timestamps=True,  # Importante para análisis futuros
             )
-            
-            logger.info(f"Lenguaje detectado: '{info.language}' con probabilidad {info.language_probability:.2f}")
-            
+
+            logger.info(
+                f"Lenguaje detectado: '{info.language}' con probabilidad {info.language_probability:.2f}"
+            )
+
             # El generador 'segments' se consume aquí para convertirlo en una lista
-            segment_list = list(segments) 
-            
+            segment_list = list(segments)
+
             # Reconstruimos el texto completo
             full_text = " ".join([s.text.strip() for s in segment_list])
-            
+
             return {"text": full_text, "segments": [s._asdict() for s in segment_list]}
 
         try:

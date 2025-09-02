@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+
 class BaseStorage(ABC):
     """
     Clase base abstracta para los adaptadores de almacenamiento.

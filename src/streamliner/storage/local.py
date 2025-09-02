@@ -6,10 +6,12 @@ from loguru import logger
 from .base import BaseStorage
 from ..config import AppConfig
 
+
 class LocalStorage(BaseStorage):
     """
     Implementación del almacenamiento para guardar archivos en el disco local.
     """
+
     def __init__(self, config: AppConfig):
         self.base_path = Path(config.downloader.local_storage_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
@@ -31,7 +33,9 @@ class LocalStorage(BaseStorage):
         """Para el almacenamiento local, "descargar" es simplemente una copia de archivo."""
         source_path = self.base_path / remote_filename
         if not source_path.exists():
-            logger.error(f"El archivo no existe en el almacenamiento local: {source_path}")
+            logger.error(
+                f"El archivo no existe en el almacenamiento local: {source_path}"
+            )
             return False
         shutil.copy(str(source_path), str(local_path))
         return True
