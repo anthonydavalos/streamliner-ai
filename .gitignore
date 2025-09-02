@@ -42,3 +42,6 @@ Thumbs.db
 /logs/
 .pytest_cache/
 .coverage
+
+# Perfil de datos de Playwright
+/playwright_user_data/
