@@ -48,4 +48,4 @@ jobs:
       # 5. Ejecuta las pruebas con Pytest
       - name: Run tests with Pytest
         run: |
-          pytest
+          PYTHONPATH=src pytest

@@ -45,32 +45,7 @@
 
 El sistema opera como un pipeline secuencial de eventos, orquestado por `asyncio`.
 
-```
-[Modo Monitor 24/7]
-|
-(Streamer inicia transmisión)
-|
-v
-[1. Downloader] --(graba con streamlink)--> [VOD.mp4]
-|
-(Stream termina, VOD guardado)
-|
-v
-[2. Pipeline de Procesamiento]
-|
-+--- [a. Extraer Audio (.wav)]
-|
-+--- [b. Detector de Highlights] --(encuentra picos de energía y transcribe solo esos segmentos)--> [Timestamps de Highlights]
-|
-+--- [c. Cutter] --(usa timestamps)--> [Clips crudos .mp4]
-|
-+--- [d. Renderer] --(añade fondo, subtítulos)--> [Clip final 9:16 .mp4]
-|
-+--- [e. Publisher] --(sube a la API)--> [TikTok]
-|
-v
-(Vuelve a monitorizar)
-```
+![Diagrama de Arquitectura de Streamliner-AI](assets/architecture-diagram.png)
 
 ## 🚀 Guía de Inicio Rápido
 
