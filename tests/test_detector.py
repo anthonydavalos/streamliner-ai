@@ -53,23 +53,21 @@ async def test_find_highlights_scoring_logic():
         detection=mock_detection_config, transcription=mock_transcription_config
     )
 
-    # --- INICIO DE LA CORRECCIÓN FINAL ---
-    # Simulamos la CLASE Transcriber con un Mock normal, no un AsyncMock.
+    # Simulamos la CLASE Transcriber
     with patch("streamliner.detector.Transcriber", spec=True) as mock_transcriber_class:
-        # El objeto que será devuelto cuando se llame a Transcriber(...)
         mock_instance = MagicMock()
-        # El método .transcribe de ESE objeto es el que debe ser asíncrono
-        mock_instance.transcribe = AsyncMock(
-            return_value={"segments": [{"text": "clutch", "start": 30}]}
-        )
 
-        # Configuramos la CLASE mock para que devuelva nuestra INSTANCIA mock
+        # --- INICIO DE LA CORRECCIÓN FINAL ---
+        # Creamos una transcripción falsa que SÍ incluye la llave 'text'
+        mock_transcription_result = {
+            "text": "un texto de ejemplo con la palabra clutch",
+            "segments": [{"text": "clutch", "start": 30}],
+        }
+        mock_instance.transcribe = AsyncMock(return_value=mock_transcription_result)
+        # --- FIN DE LA CORRECCIÓN FINAL ---
+
         mock_transcriber_class.return_value = mock_instance
-
-        # Ahora creamos el detector. Al inicializarse, llamará a Transcriber(...)
-        # y recibirá nuestra instancia falsa (mock_instance).
         detector = HighlightDetector(mock_app_config)
-    # --- FIN DE LA CORRECCIÓN FINAL ---
 
     video_duration_sec = 60
     mock_rms_scores = np.zeros(60)
