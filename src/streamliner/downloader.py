@@ -1,6 +1,5 @@
 import asyncio
 import datetime
-from pathlib import Path
 from loguru import logger
 from .config import AppConfig
 from .storage.base import BaseStorage
@@ -65,7 +64,7 @@ class Downloader:
             logger.success(f"Descarga de VOD para {streamer} completada: {local_filepath}")
             
             # Si el almacenamiento no es local, subimos el archivo ahora.
-            remote_path = await self.storage.upload(local_filepath, output_filename)
+            await self.storage.upload(local_filepath, output_filename)
             
             logger.info("🚀 Iniciando pipeline de procesamiento para el VOD recién descargado...")
             # dry_run=False porque esto es una ejecución de producción

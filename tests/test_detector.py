@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 from unittest.mock import AsyncMock, patch
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from streamliner.detector import HighlightDetector
 
@@ -31,7 +31,7 @@ async def test_find_highlights_scoring_logic():
     mock_config = MockDetectionConfig()
     
     # Necesitamos simular un objeto Transcriber, ya que no queremos instanciarlo
-    with patch('streamliner.stt.Transcriber', new_callable=AsyncMock) as mock_transcriber:
+    with patch('streamliner.stt.Transcriber', new_callable=AsyncMock):
         detector = HighlightDetector(mock_config)
 
     video_duration_sec = 60

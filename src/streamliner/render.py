@@ -53,7 +53,7 @@ class VideoRenderer:
         if self.config.logo_path and Path(self.config.logo_path).exists():
             logo_posix_path = Path(self.config.logo_path).resolve().as_posix()
             logo_input = ["-i", logo_posix_path]
-            filter_complex += f"[out];[1:v]scale=150:-1[logo];[out][logo]overlay=W-w-30:30"
+            filter_complex += "[out];[1:v]scale=150:-1[logo];[out][logo]overlay=W-w-30:30"
             
         args = [
             "ffmpeg", "-y", "-i", input_path,
