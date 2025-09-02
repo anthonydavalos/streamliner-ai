@@ -1,51 +1,43 @@
 # .github/workflows/ci.yml
 
-# Nombre del flujo de trabajo que aparecerá en la pestaña "Actions" de GitHub
 name: CI Pipeline for Streamliner-AI
 
-# Define cuándo se debe ejecutar este flujo de trabajo
 on:
-  # Ejecutar en cada push a las ramas 'main' y 'develop'
   push:
     branches: [ "main", "develop" ]
-  # Ejecutar también en cada pull request que apunte a la rama 'main'
   pull_request:
     branches: [ "main" ]
 
-# Define los trabajos (jobs) que se ejecutarán. Podemos tener varios.
 jobs:
-  # Nombramos nuestro trabajo principal 'build-and-test'
   build-and-test:
-    # Especifica el tipo de máquina virtual que usará GitHub para ejecutar el trabajo
     runs-on: ubuntu-latest
 
-    # La secuencia de pasos que se ejecutarán en el trabajo
     steps:
-      # 1. Descarga tu código del repositorio a la máquina virtual
       - name: Check out repository code
         uses: actions/checkout@v4
 
-      # 2. Configura el entorno de Python
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+      
+      # --- PASO NUEVO Y CRUCIAL AÑADIDO AQUÍ ---
+      - name: Install system dependencies (ffmpeg)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
 
-      # 3. Instala las dependencias del proyecto
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          # Instalamos las dependencias de desarrollo/testing aquí mismo
           pip install pytest pytest-asyncio pytest-mock ruff
 
-      # 4. Verifica el formato y la calidad del código con Ruff
       - name: Lint and Format Check with Ruff
         run: |
           ruff check .
           ruff format --check .
 
-      # 5. Ejecuta las pruebas con Pytest
       - name: Run tests with Pytest
         run: |
           PYTHONPATH=src pytest
