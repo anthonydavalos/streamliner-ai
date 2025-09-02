@@ -30,12 +30,14 @@ async def test_find_highlights_scoring_logic():
     Simula los scores de RMS y palabras clave para probar el algoritmo de picos.
     """
     # 1. Preparación (Arrange)
-    # Creamos una configuración y un detector falsos para la prueba
-    mock_config = MockDetectionConfig()
+    # Creamos el 'compartimento' de configuración de detección
+    mock_detection_config = MockDetectionConfig()
+    # Creamos la 'caja' de configuración de la app que contiene el compartimento
+    mock_app_config = MockAppConfig(detection=mock_detection_config)
 
-    # Necesitamos simular un objeto Transcriber, ya que no queremos instanciarlo
-    with patch("streamliner.stt.Transcriber", new_callable=AsyncMock):
-        detector = HighlightDetector(mock_config)
+    # El patch ahora debe simular el Transcriber que se crea DENTRO de HighlightDetector
+    with patch("streamliner.detector.Transcriber", new_callable=AsyncMock):
+        detector = HighlightDetector(mock_app_config) # <-- Le pasamos la 'caja' correcta
 
     video_duration_sec = 60
 
