@@ -1,7 +1,6 @@
 # Core & Async
 asyncio
-httpx[http2]
-aiohttp
+playwright
 tenacity
 loguru
 python-dotenv

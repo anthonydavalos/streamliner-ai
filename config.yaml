@@ -1,6 +1,8 @@
 streamers:
-  - "ponchokick"
-  - "ijenz"
+  - "marinagold"
+  - "milenkanolasco"
+  - "mattkeelan"
+  - "zullyy_cs"
   # - "otro_streamer"
 
 monitoring:
@@ -26,15 +28,29 @@ detection:
     scene_change_boost: 0.2 # Bonus si el pico coincide con un cambio de escena
     # Palabras clave y su "peso" en la puntuación de hype
     keywords:
-      "omg": 2.0
-      "gente": 1.5
-      "wtf": 2.5
-      "no": 1.8
-      "bro": 1.2
-      "lol": 1.5
-      "jaja": 1.5
-      "clutch": 3.0
-      "dios": 2.0
+      # Peruanismos Clave
+      "ptm": 5.0
+      "csmr": 4.5
+      "asu mare": 4.0
+      "ala": 1.5
+      "yara": 2.0
+      "piña": 3.0
+      "pe": 0.8
+      # Reacciones Fuertes
+      "noo": 3.5
+      "qué": 3.0
+      "vamos": 3.5
+      "toma": 3.0
+      "no te creo": 4.0
+      # Jerga Gamer
+      "clutch": 5.0
+      "buenísima": 4.5
+      "rata": 2.5
+      "gg": 2.0
+      "uff": 2.5
+      # Risas
+      "jajaja": 2.0
+      "xdd": 2.0
 
 transcription:
   # Modelos: tiny, base, small, medium, large-v2, distil-large-v2
