@@ -1,0 +1,29 @@
+# Core & Async
+asyncio
+httpx[http2]
+aiohttp
+tenacity
+loguru
+python-dotenv
+pyyaml
+click
+
+# Media Processing
+streamlink
+faster-whisper
+soundfile
+numpy
+scipy
+scenedetect[opencv]
+
+# Storage
+aiobotocore
+
+# TikTok Publishing
+# Nota: La librería oficial de TikTok no soporta upload programático.
+# Se usará httpx para llamadas directas a la API.
+
+# Dev & Testing
+pytest
+pytest-asyncio
+ruff

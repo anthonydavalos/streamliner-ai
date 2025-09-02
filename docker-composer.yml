@@ -1,0 +1,39 @@
+# docker-compose.yml
+
+version: '3.8'
+
+services:
+  # Definimos nuestro único servicio, al que llamaremos 'streamliner'
+  streamliner:
+    # Le decimos a Compose que construya la imagen usando el Dockerfile
+    # que se encuentra en el directorio actual ('.')
+    build: .
+    
+    # Asignamos un nombre descriptivo al contenedor para identificarlo fácilmente
+    container_name: streamliner-ai-app
+    
+    # El archivo que contiene nuestras variables de entorno (credenciales, etc.)
+    # Esto inyecta de forma segura las variables del .env en el contenedor
+    env_file:
+      - .env
+      
+    # Volúmenes: la parte más importante para el desarrollo.
+    # Esto sincroniza carpetas y archivos entre tu máquina (host) y el contenedor.
+    volumes:
+      # Sincroniza el código fuente. Si cambias un archivo .py en tu máquina,
+      # el cambio se refleja instantáneamente dentro del contenedor.
+      - ./src:/app/src
+      
+      # Monta el archivo de configuración para que el contenedor lo pueda leer.
+      - ./config.yaml:/app/config.yaml
+      
+      # Monta la carpeta de datos. Los videos descargados por el contenedor
+      # aparecerán en la carpeta 'data' de tu máquina y viceversa.
+      - ./data:/app/data
+      
+      # (Opcional) Monta la carpeta de assets si tienes un logo.
+      - ./assets:/app/assets
+      
+    # Política de reinicio: si el contenedor se detiene por un error,
+    # Docker intentará reiniciarlo automáticamente.
+    restart: unless-stopped

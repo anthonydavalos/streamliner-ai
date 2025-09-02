@@ -1,0 +1,44 @@
+# .gitignore
+
+# Entornos virtuales
+# ¡Nunca subas tu entorno virtual a Git!
+venv/
+.venv/
+env/
+.env
+
+# Archivos de configuración local y secretos
+# IMPORTANTE: El archivo .env contiene tus credenciales.
+# El .env.template SÍ debe estar en Git, pero el .env NUNCA.
+*.env
+
+# Archivos de caché y compilados de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Carpetas de instalación y distribución de paquetes
+build/
+dist/
+*.egg-info/
+wheels/
+
+# Bases de datos y archivos de media locales
+# No queremos subir gigabytes de videos descargados al repositorio
+/data/
+
+# Archivos de configuración de editores e IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
+
+# Logs y archivos de testing
+/logs/
+.pytest_cache/
+.coverage

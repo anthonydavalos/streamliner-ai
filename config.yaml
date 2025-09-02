@@ -1,0 +1,56 @@
+streamers:
+  - "ponchokick"
+  - "ijenz"
+  # - "otro_streamer"
+
+monitoring:
+  check_interval_seconds: 60
+  reconnect_delay_seconds: 30
+
+downloader:
+  output_quality: "best"
+  # Directorio base para VODs y clips si STORAGE_TYPE=local
+  local_storage_path: "./data"
+
+detection:
+  # Duración (segundos) de los clips a generar
+  clip_duration_seconds: 45
+  # Umbral de puntuación para considerar un momento como highlight
+  hype_score_threshold: 1.5
+  max_clips_per_vod: 3
+  rms_peak_threshold: 0.92
+  # Parámetros de la fórmula de scoring
+  scoring:
+    rms_weight: 0.6
+    keyword_weight: 0.2
+    scene_change_boost: 0.2 # Bonus si el pico coincide con un cambio de escena
+    # Palabras clave y su "peso" en la puntuación de hype
+    keywords:
+      "omg": 2.0
+      "gente": 1.5
+      "wtf": 2.5
+      "no": 1.8
+      "bro": 1.2
+      "lol": 1.5
+      "jaja": 1.5
+      "clutch": 3.0
+      "dios": 2.0
+
+transcription:
+  # Modelos: tiny, base, small, medium, large-v2, distil-large-v2
+  whisper_model: "base"
+  device: "cpu" # "cuda" si tienes una GPU NVIDIA compatible
+  compute_type: "int8" # "float16" para GPU
+
+rendering:
+  # Ruta al logo que se agregará a los videos. Dejar en blanco para no usar.
+  logo_path: "./assets/logo.png"
+  # Estilo de subtítulos para quemar en el video (formato ASS)
+  subtitle_style: "FontName=Arial,FontSize=14,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=60"
+
+publishing:
+  # Plantilla para la descripción del video en TikTok
+  # Variables disponibles: {streamer_name}, {game_name}, {clip_title}
+  description_template: "¡Vaya momento de {streamer_name}! 🤯 #clips #gaming #{streamer_name}"
+  # Estrategia de subida: 'PULL_FROM_URL' (recomendado para S3/R2) o 'MULTIPART'
+  upload_strategy: "PULL_FROM_URL"
