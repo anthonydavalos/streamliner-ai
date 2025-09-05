@@ -3,6 +3,10 @@ streamers:
   - "milenkanolasco"
   - "mattkeelan"
   - "zullyy_cs"
+  - "elpadredomingooficiall"
+  - "francovidalalcalde"
+  - "sachauzumaki"
+  - "zullyy_cs"
   # - "otro_streamer"
 
 monitoring:
@@ -18,7 +22,7 @@ detection:
   # Duración (segundos) de los clips a generar
   clip_duration_seconds: 45
   # Umbral de puntuación para considerar un momento como highlight
-  hype_score_threshold: 1.5
+  hype_score_threshold: 1.2
   max_clips_per_vod: 3
   rms_peak_threshold: 0.92
   # Parámetros de la fórmula de scoring
@@ -62,7 +66,7 @@ rendering:
   # Ruta al logo que se agregará a los videos. Dejar en blanco para no usar.
   logo_path: "./assets/logo.png"
   # Estilo de subtítulos para quemar en el video (formato ASS)
-  subtitle_style: "FontName=Arial,FontSize=14,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=60"
+  subtitle_style: "FontName=Arial,FontSize=12,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=60"
 
 publishing:
   # Plantilla para la descripción del video en TikTok

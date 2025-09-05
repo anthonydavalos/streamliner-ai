@@ -1,9 +1,12 @@
 # src/streamliner/monitor.py
 
 import asyncio
-from playwright.async_api import async_playwright, BrowserContext
+import os
+import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 from loguru import logger
+import time
+from urllib.parse import urlencode
 
 from .config import AppConfig
 from .downloader import Downloader
@@ -12,109 +15,153 @@ from .storage import get_storage
 
 class Monitor:
     """
-    Gestiona la monitorización de streamers usando Playwright.
-    Versión final: No usa la API, sino que "ve" la página del canal para detectar
-    el indicador de "EN VIVO", evitando las protecciones de API más fuertes.
+    Gestiona la monitorización de streamers usando el flujo de autenticación oficial
+    de Kick y el endpoint de consulta por lotes, basado en la investigación
+    exitosa con Apps Script.
     """
 
     def __init__(self, config: AppConfig):
         self.config = config
         self.streamers = config.streamers
         self.storage = get_storage(config)
+
+        self.client_id = os.getenv("KICK_CLIENT_ID")
+        self.client_secret = os.getenv("KICK_CLIENT_SECRET")
+        if not self.client_id or not self.client_secret:
+            raise ValueError(
+                "KICK_CLIENT_ID y KICK_CLIENT_SECRET deben estar en el .env"
+            )
+
+        self.client = httpx.AsyncClient(timeout=20)
+        self.access_token = None
+        self.token_expiry_time = 0
+        self.currently_downloading = (
+            set()
+        )  # Para no descargar dos veces al mismo streamer
+
         logger.info(f"Monitor configurado para los streamers: {self.streamers}")
 
-    async def start(self):
-        """Inicia Playwright y lanza las tareas de monitorización."""
-        user_data_dir = "./playwright_user_data"
+    async def _get_app_access_token(self):
+        """Obtiene un App Access Token de la API de Kick."""
+        token_url = "https://id.kick.com/oauth/token"
+        payload = {
+            "grant_type": "client_credentials",
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+        }
 
-        async with async_playwright() as p:
-            browser_context = await p.chromium.launch_persistent_context(
-                user_data_dir,
-                headless=False,
+        logger.info("Solicitando nuevo App Access Token de Kick...")
+        try:
+            response = await self.client.post(token_url, data=payload)
+            response.raise_for_status()
+            token_data = response.json()
+
+            self.access_token = token_data.get("access_token")
+            if not self.access_token:
+                raise ValueError("La respuesta no contenía 'access_token'")
+
+            self.token_expiry_time = (
+                time.time() + token_data.get("expires_in", 3600) - 60
             )
-            logger.info(
-                f"Navegador Playwright (Chromium) iniciado con perfil dedicado en: {user_data_dir}"
+            logger.success("App Access Token obtenido exitosamente.")
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"No se pudo obtener el token: {e.response.status_code} - {e.response.text}"
             )
+            raise
 
-            tasks = [
-                self.monitor_streamer(streamer, browser_context)
-                for streamer in self.streamers
-            ]
-            await asyncio.gather(*tasks)
-
-            await browser_context.close()
+    async def _ensure_token_is_valid(self):
+        """Verifica y refresca el token si es necesario."""
+        if not self.access_token or time.time() >= self.token_expiry_time:
+            await self._get_app_access_token()
 
     @retry(
         stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=5, max=60)
     )
-    async def get_streamer_status(
-        self, streamer: str, browser_context: BrowserContext
-    ) -> dict:
-        """
-        Verifica si un streamer está en vivo navegando a su página y buscando
-        un elemento visual que indique el estado "EN VIVO".
-        """
-        channel_url = f"https://kick.com/{streamer}"
-        page = None
+    async def get_streamers_status(self) -> dict:
+        """Consulta el estado de TODOS los streamers en una sola llamada a la API."""
+        await self._ensure_token_is_valid()
+
+        # Construye la URL con múltiples parámetros 'slug', como en Apps Script
+        query_params = [("slug", streamer) for streamer in self.streamers]
+        url = f"https://api.kick.com/public/v1/channels?{urlencode(query_params)}"
+
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Accept": "application/json",
+        }
+
         try:
-            page = await browser_context.new_page()
-            logger.debug(
-                f"Navegando a la página de {streamer} para comprobar estado visual..."
-            )
+            logger.debug(f"Consultando estado para: {self.streamers}")
+            response = await self.client.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
 
-            # Navegamos y esperamos a que la red esté mayormente inactiva, señal de que cargó.
-            await page.goto(channel_url, timeout=30000, wait_until="networkidle")
-
-            # Selector CSS que busca un elemento que solo suele existir cuando el stream está en vivo.
-            # Este es un selector común para el indicador rojo de "LIVE".
-            live_indicator_selector = "div.live-badge-container"
-
-            # Contamos cuántos de estos elementos hay en la página.
-            live_indicator_count = await page.locator(live_indicator_selector).count()
-
-            if live_indicator_count > 0:
-                logger.success(
-                    f"Indicador visual de 'EN VIVO' encontrado para {streamer}."
+            # Procesamos la respuesta para devolver un diccionario de estados
+            live_statuses = {slug: False for slug in self.streamers}
+            results_data = data.get("data", [])
+            if not isinstance(results_data, list):
+                logger.warning(
+                    f"La respuesta de la API no fue una lista: {results_data}"
                 )
-                return {"is_live": True}
-            else:
-                logger.info(
-                    f"⚪ {streamer} no está en vivo (no se encontró indicador visual)."
-                )
-                return {"is_live": False}
-        except Exception as e:
-            logger.error(f"Error al comprobar el estado visual de {streamer}: {e}")
+                results_data = []
+
+            for channel_info in results_data:
+                slug = channel_info.get("slug")
+                if slug in live_statuses:
+                    is_live = channel_info.get("stream") and channel_info["stream"].get(
+                        "is_live"
+                    )
+                    live_statuses[slug] = is_live
+            return live_statuses
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error HTTP al consultar canales: {e.response.status_code}")
             raise
-        finally:
-            if page:
-                await page.close()
+        except Exception as e:
+            logger.error(f"Error inesperado al consultar canales: {e}")
+            raise
 
-    async def monitor_streamer(self, streamer: str, browser_context: BrowserContext):
-        """Ciclo de vida de la monitorización para un solo streamer."""
-        logger.info(f"Iniciando monitorización para '{streamer}'.")
+    async def _handle_download(self, streamer):
+        """Maneja la descarga para un streamer que está en vivo."""
+        logger.info(f"Iniciando proceso de descarga para {streamer}...")
+        self.currently_downloading.add(streamer)
+        try:
+            downloader = Downloader(self.config, self.storage)
+            await downloader.download_stream(streamer)
+        finally:
+            logger.info(f"Proceso de descarga para {streamer} finalizado.")
+            self.currently_downloading.remove(streamer)
+
+    async def _run_monitoring_cycle(self):
+        """El ciclo principal que se ejecuta cada X segundos."""
         while True:
             try:
-                status = await self.get_streamer_status(streamer, browser_context)
-                if status["is_live"]:
-                    logger.success(
-                        f"🟢 ¡{streamer} está EN VIVO! Iniciando descarga..."
-                    )
-                    downloader = Downloader(self.config, self.storage)
-                    await downloader.download_stream(streamer)
-                    logger.info(
-                        f"La sesión de {streamer} ha terminado. Reanudando monitoreo en {self.config.monitoring.reconnect_delay_seconds}s."
-                    )
-                    await asyncio.sleep(self.config.monitoring.reconnect_delay_seconds)
-                else:
-                    # El log de 'no en vivo' ya se muestra en get_streamer_status
-                    await asyncio.sleep(self.config.monitoring.check_interval_seconds)
+                logger.info("Iniciando nuevo ciclo de monitorización...")
+                live_statuses = await self.get_streamers_status()
 
-            except Exception:
-                # El error ya se loguea en get_streamer_status, y tenacity se encarga de reintentar.
-                # Si los reintentos fallan, el error se propaga aquí.
+                for streamer, is_live in live_statuses.items():
+                    if is_live and streamer not in self.currently_downloading:
+                        logger.success(
+                            f"🟢 {streamer} está EN VIVO. Lanzando tarea de descarga..."
+                        )
+                        # Lanza la descarga en segundo plano para no bloquear el monitor
+                        asyncio.create_task(self._handle_download(streamer))
+                    elif not is_live:
+                        logger.info(f"⚪ {streamer} no está en vivo.")
+
+            except Exception as e:
                 logger.error(
-                    f"Fallo persistente en la monitorización de {streamer} tras varios reintentos. Esperando antes de volver a empezar el ciclo."
+                    f"Fallo en el ciclo de monitorización: {e}. Reintentando en el próximo ciclo."
                 )
-                await asyncio.sleep(
-                    self.config.monitoring.check_interval_seconds * 2
-                )  # Espera más larga tras fallo persistente
+
+            logger.info(
+                f"Ciclo de monitorización completado. Esperando {self.config.monitoring.check_interval_seconds} segundos..."
+            )
+            await asyncio.sleep(self.config.monitoring.check_interval_seconds)
+
+    async def start(self):
+        """Inicia el monitor."""
+        await self._ensure_token_is_valid()
+        await self._run_monitoring_cycle()
+        await self.client.aclose()

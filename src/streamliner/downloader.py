@@ -35,7 +35,6 @@ class Downloader:
             self.config.downloader.output_quality,
             "-o",
             str(local_filepath),
-            "--force-progress",  # Para ver el output
         ]
 
         logger.info(f"Ejecutando comando: {' '.join(args)}")
