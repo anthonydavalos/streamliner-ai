@@ -121,7 +121,7 @@ def load_config() -> AppConfig:
             "El archivo 'config.yaml' no se encuentra. Copia 'config.yaml.example' y ajústalo."
         )
 
-    with open(config_path, "r") as f:
+    with open(config_path, "r", encoding="utf-8") as f:
         yaml_config = yaml.safe_load(f)
 
     # --- Preparación de las configuraciones anidadas (Aquí está la corrección) ---

@@ -52,10 +52,8 @@ class VideoCutter:
             str(input_path),
             "-to",
             str(end_seconds),
-            "-c",
-            "copy",
-            "-map",
-            "0",  # Copia todos los streams (video, audio, etc.)
+            # Al no especificar "-c copy" ni "-map", ffmpeg recodificará
+            # usando sus valores por defecto, creando un archivo 100% robusto.
             str(output_path),
         ]
 
