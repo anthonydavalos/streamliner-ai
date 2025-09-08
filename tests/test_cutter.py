@@ -47,8 +47,6 @@ async def test_cut_clip_success():
         "-to",
         "25.0",
         "-c",
-        "copy",
-        "-map",
         "0",
         str(output_path),
     ]
