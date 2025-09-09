@@ -84,14 +84,21 @@ class PublishingConfig:
     upload_strategy: str
 
 
+# --- INICIO DE LA CORRECCIÓN ---
+# 1. Creamos una nueva clase para la configuración de tiempo real
+@dataclass
+class RealTimeProcessingConfig:
+    chunk_duration_seconds: int = 30
+    chunk_storage_path: str = "./data/chunks"
+
+
 # --- Clase Principal de Configuración ---
 
 
 @dataclass
 class AppConfig:
     """
-    Clase contenedora principal que agrupa toda la configuración
-    de la aplicación en un solo objeto.
+    Clase contenedora principal que agrupa toda la configuración.
     """
 
     streamers: list[str]
@@ -103,8 +110,13 @@ class AppConfig:
     transcription: TranscriptionConfig
     rendering: RenderingConfig
     publishing: PublishingConfig
+    # 2. Añadimos el nuevo campo a la configuración principal
+    real_time_processing: RealTimeProcessingConfig
     log_level: str = "INFO"
     log_json: bool = False
+
+
+# --- FIN DE LA CORRECCIÓN ---
 
 
 def load_config() -> AppConfig:
@@ -169,6 +181,10 @@ def load_config() -> AppConfig:
         transcription=TranscriptionConfig(**yaml_config.get("transcription", {})),
         rendering=RenderingConfig(**yaml_config.get("rendering", {})),
         publishing=PublishingConfig(**yaml_config.get("publishing", {})),
+        # 3. Le decimos cómo leer la nueva sección del YAML
+        real_time_processing=RealTimeProcessingConfig(
+            **yaml_config.get("real_time_processing", {})
+        ),
     )
 
     logger.info("Configuración cargada exitosamente.")

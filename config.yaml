@@ -7,6 +7,7 @@ streamers:
   - "francovidalalcalde"
   - "sachauzumaki"
   - "zullyy_cs"
+  - "luisormenoa27"
   # - "otro_streamer"
 
 monitoring:
@@ -297,3 +298,9 @@ publishing:
   description_template: "¡Vaya momento de {streamer_name}! 🤯 #clips #gaming #{streamer_name}"
   # Estrategia de subida: 'PULL_FROM_URL' (recomendado para S3/R2) o 'MULTIPART'
   upload_strategy: "PULL_FROM_URL"
+
+real_time_processing:
+  # Duración de cada trozo de video (chunk) en segundos. 30s es un buen balance.
+  chunk_duration_seconds: 30
+  # Carpeta dedicada donde se guardarán los chunks mientras se procesan.
+  chunk_storage_path: "./data/chunks"
