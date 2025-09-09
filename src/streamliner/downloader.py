@@ -7,12 +7,13 @@ from loguru import logger
 
 from .config import AppConfig
 from .storage.base import BaseStorage
+from .worker import ProcessingWorker
 
 
 class Downloader:
     """
-    Gestiona la descarga de un stream en vivo, cortándolo en pequeños chunks
-    de video para el procesamiento en tiempo real.
+    Gestiona la descarga en chunks y orquesta el trabajador de procesamiento en paralelo.
+    Esta versión incluye la corrección para la tubería (pipe) en Windows.
     """
 
     def __init__(self, config: AppConfig, storage: BaseStorage):
@@ -21,8 +22,8 @@ class Downloader:
 
     async def download_stream(self, streamer: str):
         """
-        Crea una tubería (pipe) entre streamlink y ffmpeg para segmentar el stream en vivo.
-        Esta versión incluye un "puente" manual para compatibilidad con Windows.
+        Lanza el productor (streamlink -> ffmpeg) y el consumidor (ProcessingWorker)
+        para procesar un stream en vivo en tiempo real.
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -34,18 +35,14 @@ class Downloader:
 
         output_pattern = chunk_path / "chunk_%05d.ts"
 
-        logger.info(f"Iniciando descarga en chunks para '{streamer}'.")
-        logger.info(f"Directorio de chunks: {chunk_path}")
-
-        stream_url = f"https://kick.com/{streamer}"
+        logger.info(f"Iniciando descarga en chunks para '{streamer}' en {chunk_path}")
 
         streamlink_args = [
             "streamlink",
             "--stdout",
-            stream_url,
+            f"https://kick.com/{streamer}",
             self.config.downloader.output_quality,
         ]
-
         ffmpeg_args = [
             "ffmpeg",
             "-i",
@@ -63,64 +60,76 @@ class Downloader:
             str(output_pattern),
         ]
 
-        logger.debug(f"Comando Streamlink: {' '.join(streamlink_args)}")
-        logger.debug(f"Comando FFmpeg: {' '.join(ffmpeg_args)}")
+        # --- ORQUESTACIÓN DEL PRODUCTOR Y EL CONSUMIDOR CON CORRECCIÓN PARA WINDOWS ---
 
-        # --- INICIO DE LA CORRECCIÓN PARA WINDOWS ---
+        # 1. Creamos nuestro trabajador de procesamiento
+        worker = ProcessingWorker(self.config, streamer, chunk_path)
+        worker_task = asyncio.create_task(worker.start())
 
-        # Iniciamos streamlink, su salida será una tubería que leeremos.
+        # 2. Iniciamos los procesos de descarga
         streamlink_proc = await asyncio.create_subprocess_exec(
             *streamlink_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-
-        # Iniciamos ffmpeg, su entrada será una tubería en la que escribiremos.
         ffmpeg_proc = await asyncio.create_subprocess_exec(
             *ffmpeg_args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.PIPE,  # Lo creamos como tubería para escribir manualmente
             stderr=asyncio.subprocess.PIPE,
         )
 
         logger.success(
-            f"Tubería streamlink -> ffmpeg iniciada para '{streamer}'. La grabación ha comenzado."
+            f"Productor (ffmpeg) y Consumidor (worker) iniciados para '{streamer}'."
         )
 
-        # Función "puente" que lee de streamlink y escribe en ffmpeg.
+        # 3. Creamos las tareas de soporte
         async def pipe_data(stream_in, stream_out):
+            """Función "puente" que lee de streamlink y escribe en ffmpeg."""
             while True:
-                chunk = await stream_in.read(4096)  # Lee en trozos de 4KB
+                chunk = await stream_in.read(8192)  # Lee en trozos de 8KB
                 if not chunk:
                     break
-                stream_out.write(chunk)
-                await stream_out.drain()  # Espera a que el buffer se vacíe
+                try:
+                    stream_out.write(chunk)
+                    await stream_out.drain()
+                except (BrokenPipeError, ConnectionResetError):
+                    logger.warning(
+                        "La tubería de ffmpeg se cerró. Probablemente el stream terminó."
+                    )
+                    break
             stream_out.close()
 
         async def log_stderr(process, name):
             async for line in process.stderr:
                 logger.debug(f"[{name}-stderr] {line.decode(errors='ignore').strip()}")
 
-        # Ejecutamos todo en paralelo: los dos loggers y el "puente" de datos.
+        # 4. Creamos una tarea para esperar a que la descarga finalice
+        async def wait_for_download_end():
+            # Esperamos a que el proceso de streamlink termine (señal de que el stream acabó)
+            await streamlink_proc.wait()
+            # Le damos un segundo extra a la tubería para procesar los últimos datos
+            await asyncio.sleep(1)
+            # Forzamos la finalización de ffmpeg si no ha terminado solo
+            if ffmpeg_proc.returncode is None:
+                ffmpeg_proc.terminate()
+            await ffmpeg_proc.wait()
+
+        # 5. Ejecutamos todo en paralelo y esperamos a que la descarga termine
+        download_task = asyncio.create_task(wait_for_download_end())
+
         await asyncio.gather(
             log_stderr(streamlink_proc, "streamlink"),
             log_stderr(ffmpeg_proc, "ffmpeg"),
             pipe_data(streamlink_proc.stdout, ffmpeg_proc.stdin),
+            download_task,
         )
-        # --- FIN DE LA CORRECCIÓN ---
 
-        await streamlink_proc.wait()
-        await ffmpeg_proc.wait()
+        logger.info(
+            f"La descarga para '{streamer}' ha finalizado. Deteniendo al trabajador..."
+        )
 
-        if streamlink_proc.returncode != 0 or ffmpeg_proc.returncode != 0:
-            logger.error(
-                f"La descarga de chunks para '{streamer}' finalizó con errores."
-            )
-            logger.error(
-                f"Código de salida de Streamlink: {streamlink_proc.returncode}"
-            )
-            logger.error(f"Código de salida de FFmpeg: {ffmpeg_proc.returncode}")
-        else:
-            logger.success(
-                f"Descarga de chunks para '{streamer}' completada exitosamente."
-            )
+        # 6. Cuando la descarga termina, le decimos al trabajador que se detenga
+        worker.stop()
+        await worker_task
+
+        logger.success(f"Procesamiento en tiempo real para '{streamer}' completado.")
