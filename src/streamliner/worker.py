@@ -3,16 +3,18 @@
 import asyncio
 from pathlib import Path
 from loguru import logger
+import os
+from collections import deque
 
 from .config import AppConfig
 from .detector import HighlightDetector
-# Más adelante importaremos Cutter, Renderer, etc.
+from .pipeline import process_and_create_clip, _extract_audio
 
 
 class ProcessingWorker:
     """
     Un trabajador asíncrono que vigila una carpeta en busca de nuevos chunks de video,
-    los analiza para encontrar highlights y, si los encuentra, los procesa.
+    los analiza, los procesa y limpia los chunks antiguos de forma segura.
     """
 
     def __init__(self, config: AppConfig, streamer: str, stream_session_dir: Path):
@@ -22,6 +24,9 @@ class ProcessingWorker:
         self.detector = HighlightDetector(config)
         self.processed_chunks = set()
         self.shutdown_event = asyncio.Event()
+        # Mantiene un registro de los últimos chunks para una limpieza segura.
+        # El número 5 es un margen de seguridad; puedes ajustarlo.
+        self.cleanup_buffer = deque(maxlen=5)
 
     async def start(self):
         """Inicia el ciclo de vigilancia del trabajador."""
@@ -30,13 +35,11 @@ class ProcessingWorker:
         )
         while not self.shutdown_event.is_set():
             try:
-                # Busca archivos .ts en el directorio
                 all_chunks = sorted(
                     [p for p in self.stream_session_dir.glob("*.ts")],
                     key=lambda p: p.name,
                 )
 
-                # Filtra para encontrar solo los chunks que no hemos procesado aún
                 new_chunks = [
                     chunk
                     for chunk in all_chunks
@@ -44,56 +47,112 @@ class ProcessingWorker:
                 ]
 
                 if new_chunks:
-                    logger.debug(
-                        f"[Worker-{self.streamer}] Se encontraron {len(new_chunks)} chunks nuevos."
-                    )
                     for chunk_path in new_chunks:
-                        await self.process_chunk(chunk_path)
+                        # Añadimos el chunk al buffer de limpieza ANTES de procesarlo
+                        if chunk_path.exists():
+                            self.cleanup_buffer.append(chunk_path)
+
+                        # Procesamos el chunk en una tarea separada para no bloquear
+                        asyncio.create_task(self.process_chunk(chunk_path))
                         self.processed_chunks.add(chunk_path.name)
 
-                # Espera un poco antes de volver a revisar la carpeta
+                        # INTENTAMOS LIMPIAR EL CHUNK MÁS ANTIGUO DEL BUFFER
+                        await self._cleanup_oldest_chunk()
+
                 await asyncio.sleep(5)
 
             except asyncio.CancelledError:
-                logger.info(f"[Worker-{self.streamer}] Tarea cancelada. Cerrando...")
                 break
             except Exception as e:
-                logger.error(f"[Worker-{self.streamer}] Error inesperado: {e}")
-                await asyncio.sleep(10)  # Espera más tiempo si hay un error
+                logger.error(
+                    f"[Worker-{self.streamer}] Error inesperado en el bucle principal: {e}"
+                )
+                await asyncio.sleep(10)
 
-        logger.info(f"[Worker-{self.streamer}] Proceso de vigilancia detenido.")
+        logger.info(
+            f"[Worker-{self.streamer}] Proceso de vigilancia detenido. Realizando limpieza final..."
+        )
+        await self._final_cleanup()
 
     def stop(self):
         """Señaliza al trabajador para que se detenga."""
         logger.info(f"[Worker-{self.streamer}] Recibida señal de detención.")
         self.shutdown_event.set()
 
+    async def _cleanup_oldest_chunk(self):
+        """Intenta eliminar el chunk más antiguo si el buffer está lleno."""
+        if len(self.cleanup_buffer) == self.cleanup_buffer.maxlen:
+            chunk_to_delete = self.cleanup_buffer[0]  # El elemento más antiguo
+            await self._safe_delete(chunk_to_delete)
+
+    async def _final_cleanup(self):
+        """Limpia todos los chunks restantes en el buffer al finalizar."""
+        logger.info(
+            f"[Worker-{self.streamer}] Limpiando {len(self.cleanup_buffer)} chunks restantes..."
+        )
+        await asyncio.sleep(2)  # Espera final para que se liberen los archivos
+
+        # Convierte deque a lista para evitar problemas al iterar y borrar
+        for chunk_path in list(self.cleanup_buffer):
+            await self._safe_delete(chunk_path)
+
+        # Limpiamos los archivos restantes que no estaban en el buffer
+        for chunk_path in self.stream_session_dir.glob("*.ts"):
+            await self._safe_delete(chunk_path)
+
+        logger.success(
+            f"[Worker-{self.streamer}] Limpieza final de archivos completada."
+        )
+
+    async def _safe_delete(self, chunk_path: Path):
+        """Elimina un archivo de forma segura, con un pequeño reintento."""
+        try:
+            if chunk_path.exists():
+                os.remove(chunk_path)
+                logger.debug(f"Chunk {chunk_path.name} limpiado exitosamente.")
+        except OSError as e:
+            logger.warning(
+                f"No se pudo limpiar el chunk {chunk_path.name} en el primer intento: {e}"
+            )
+            await asyncio.sleep(1)  # Espera 1 segundo y reintenta
+            try:
+                if chunk_path.exists():
+                    os.remove(chunk_path)
+                    logger.debug(
+                        f"Chunk {chunk_path.name} limpiado en el segundo intento."
+                    )
+            except OSError as e_retry:
+                logger.error(
+                    f"Fallo final al limpiar el chunk {chunk_path.name}: {e_retry}"
+                )
+
     async def process_chunk(self, chunk_path: Path):
         """
-        Ejecuta el pipeline de detección en un único chunk de video.
+        Ejecuta el pipeline de detección completo en un único chunk de video.
         """
-        logger.info(f"[Worker-{self.streamer}] Procesando chunk: {chunk_path.name}")
-
-        # Por ahora, solo ejecutamos la detección. En la Fase 3, añadiremos el contexto
-        # y la lógica de unión de chunks.
-        # Necesitamos la duración del video para el detector. La obtenemos de la config.
-        chunk_duration = self.config.real_time_processing.chunk_duration_seconds
-
+        logger.info(f"[Worker-{self.streamer}] Analizando chunk: {chunk_path.name}")
+        audio_chunk_path = None
         try:
-            # NOTA: El detector necesita un archivo de audio. El pipeline lo extrae.
-            # Vamos a simular este paso por ahora y lo integraremos bien después.
-            # Por ahora, pasaremos la ruta del video y asumiremos que el detector lo maneja.
-            # La lógica completa del pipeline (extraer audio, etc.) se aplicará aquí.
-
-            # Dejaremos un log de lo que haríamos a continuación:
-            logger.info(
-                f"---> [SIMULACIÓN] Aquí se ejecutaría el pipeline completo para {chunk_path.name}"
+            audio_chunk_path = await _extract_audio(chunk_path)
+            chunk_duration = self.config.real_time_processing.chunk_duration_seconds
+            highlights = await self.detector.find_highlights(
+                str(audio_chunk_path), chunk_duration
             )
 
-            # highlights = await self.detector.find_highlights(str(chunk_path), chunk_duration)
-            # if highlights:
-            #     logger.success(f"¡HIGHLIGHT ENCONTRADO EN {chunk_path.name}!")
-            #     # Aquí iría la lógica de corte, renderizado y subida.
-
+            if highlights:
+                logger.success(
+                    f"¡HIGHLIGHTS ({len(highlights)}) ENCONTRADOS EN {chunk_path.name}!"
+                )
+                best_highlight = highlights[0]
+                logger.info(
+                    f"Procediendo a crear clip para el mejor highlight (Score: {best_highlight['score']:.2f})"
+                )
+                await process_and_create_clip(self.config, chunk_path, self.streamer)
         except Exception as e:
             logger.error(f"Fallo al procesar el chunk {chunk_path.name}: {e}")
+        finally:
+            if audio_chunk_path and audio_chunk_path.exists():
+                try:
+                    os.remove(audio_chunk_path)
+                except OSError:
+                    pass

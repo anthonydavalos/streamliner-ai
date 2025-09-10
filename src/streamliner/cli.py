@@ -21,7 +21,12 @@ def monitor(config: AppConfig):
     try:
         asyncio.run(m.start())
     except KeyboardInterrupt:
-        click.echo("\n🛑 Deteniendo monitorización...")
+        click.echo("\n🛑 Deteniendo monitorización manualmente...")
+    finally:
+        # Esta sección se ejecuta siempre, ya sea por error o por Ctrl+C
+        click.echo("🧹 Realizando limpieza final...")
+        asyncio.run(m.shutdown())
+        click.echo("✅ Limpieza completada. Adiós.")
 
 
 @cli.command()

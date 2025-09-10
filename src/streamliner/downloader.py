@@ -133,3 +133,4 @@ class Downloader:
         await worker_task
 
         logger.success(f"Procesamiento en tiempo real para '{streamer}' completado.")
+        return chunk_path

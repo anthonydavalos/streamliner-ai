@@ -297,7 +297,7 @@ publishing:
   # Variables disponibles: {streamer_name}, {game_name}, {clip_title}
   description_template: "¡Vaya momento de {streamer_name}! 🤯 #clips #gaming #{streamer_name}"
   # Estrategia de subida: 'PULL_FROM_URL' (recomendado para S3/R2) o 'MULTIPART'
-  upload_strategy: "PULL_FROM_URL"
+  upload_strategy: "MULTIPART"
 
 real_time_processing:
   # Duración de cada trozo de video (chunk) en segundos. 30s es un buen balance.
