@@ -6,6 +6,7 @@ loguru
 python-dotenv
 pyyaml
 click
+requests
 
 # Media Processing
 streamlink

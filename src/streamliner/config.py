@@ -24,6 +24,8 @@ class TikTokCredentials:
     access_token: str | None = None
     refresh_token: str | None = None
     open_id: str | None = None
+    # --- CAMBIO AQUÍ: Añadimos el entorno ---
+    environment: str = "production"  # Por defecto, será producción
 
 
 @dataclass
@@ -167,6 +169,8 @@ def load_config() -> AppConfig:
                 access_token=os.getenv("TIKTOK_ACCESS_TOKEN"),
                 refresh_token=os.getenv("TIKTOK_REFRESH_TOKEN"),
                 open_id=os.getenv("TIKTOK_OPEN_ID"),
+                # --- CAMBIO AQUÍ: Leemos la variable de entorno ---
+                environment=os.getenv("TIKTOK_ENVIRONMENT", "production"),
             )
         },
         monitoring=MonitoringConfig(**yaml_config.get("monitoring", {})),

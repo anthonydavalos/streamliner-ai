@@ -19,6 +19,7 @@ Este proyecto utiliza la **API oficial de Kick**, autenticándose vía **OAuth2 
       - [Prerrequisitos](#prerrequisitos)
       - [Pasos de Instalación](#pasos-de-instalación)
       - [Configuración de la API de Kick](#configuración-de-la-api-de-kick)
+      - [Configuración de la API de TikTok](#configuración-de-la-api-de-tiktok)
       - [Configuración del Proyecto](#configuración-del-proyecto)
 5.  [💻 Uso de la Aplicación](#-uso-de-la-aplicaci%C3%B3n)
 6.  [🐳 Despliegue con Docker](#-despliegue-con-docker)
@@ -98,6 +99,41 @@ Sigue los pasos de la [🚀 Guía de Inicio Rápido](#guía-de-inicio-rápido). 
       * `channel:read` (Leer información del canal) - **Esencial**.
       * `user:read` (Leer información de usuario).
 4.  **Obtén tus Credenciales:** Una vez creada la aplicación, Kick te proporcionará un **`Client ID`** y un **`Client Secret`**.
+
+### Configuración de la API de TikTok
+
+Para que Streamliner AI pueda publicar clips en tu cuenta de TikTok, necesitas obtener y configurar los tokens de autenticación iniciales.
+
+1.  **Configura tu Aplicación en TikTok Developer Center:**
+    Asegúrate de haber registrado tu aplicación en el [TikTok Developer Center](https://developers.tiktok.com/) y haber obtenido tu `Client Key` y `Client Secret`. Es crucial también configurar un "Redirect URI" válido (por ejemplo, `https://www.example.com/oauth`) en la configuración de tu aplicación de TikTok.
+
+2.  **Añade tus Credenciales Básicas al `.env`:**
+    Abre tu archivo `.env` en la raíz del proyecto y añade las siguientes líneas con tus claves obtenidas del Developer Center:
+    ```
+    TIKTOK_CLIENT_KEY=tu_client_key_aqui
+    TIKTOK_CLIENT_SECRET=tu_client_secret_aqui
+    ```
+
+3.  **Ejecuta el Generador de Tokens:**
+    Abre tu terminal en la raíz del proyecto y ejecuta el script de utilidad diseñado para esto:
+    ```bash
+    python scripts/generate_tiktok_tokens.py
+    ```
+    El script te proporcionará una URL de autorización.
+
+4.  **Autoriza la Aplicación en tu Navegador:**
+    * Copia la URL proporcionada por el script y pégala en tu navegador web.
+    * Inicia sesión en TikTok con la cuenta en la que deseas que el bot publique los clips.
+    * Revisa y autoriza la aplicación para acceder a los scopes solicitados (`user.info.basic`, `video.upload`, `video.list`, etc.).
+    * Después de la autorización, serás redirigido a tu `Redirect URI`. La URL en tu navegador contendrá el `code` y el `open_id` en los parámetros de la URL (por ejemplo: `https://www.example.com/oauth?code=ABC...XYZ&open_id=123...456`).
+
+5.  **Introduce los Datos en la Terminal:**
+    Copia el valor del `code` y el `open_id` de la URL de redirección y pégalos en la terminal cuando el script `generate_tiktok_tokens.py` te lo pida.
+
+6.  **Tokens Guardados Automáticamente:**
+    El script procesará estos datos y guardará automáticamente el `TIKTOK_ACCESS_TOKEN`, `TIKTOK_REFRESH_TOKEN` y `TIKTOK_OPEN_ID` en tu archivo `.env`. ¡Tu bot ya estará configurado para interactuar con la API de TikTok\!
+
+**Nota:** El `TIKTOK_ACCESS_TOKEN` se refrescará automáticamente según sea necesario, por lo que no tendrás que ejecutar este script con frecuencia una vez que hayas obtenido los tokens iniciales. Para pruebas en desarrollo, asegúrate de que `TIKTOK_ENVIRONMENT=sandbox` esté configurado en tu `.env`; para producción, cámbialo a `TIKTOK_ENVIRONMENT=production` (una vez que tu aplicación haya sido aprobada por TikTok).
 
 ### Configuración del Proyecto
 
