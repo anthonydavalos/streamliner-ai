@@ -4,6 +4,8 @@
 [![Python Version](https://img.shields.io/badge/python-3.13.3-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+![Logo de Streamliner-AI](assets/logo.png)
+
 **Streamliner-AI** es un pipeline 100% automático y asíncrono en Python, diseñado para monitorizar streamers de Kick, detectar momentos virales de alta emoción, generar clips verticales optimizados para redes sociales y publicarlos en TikTok sin intervención manual.
 
 Este proyecto utiliza la **API oficial de Kick**, autenticándose vía **OAuth2 (Client Credentials)** para una monitorización estable, eficiente y robusta.
@@ -45,6 +47,8 @@ Este proyecto utiliza la **API oficial de Kick**, autenticándose vía **OAuth2 
 ## ⚙️ Arquitectura del Sistema
 
 El sistema opera como un pipeline estable que utiliza la autenticación oficial de Kick para asegurar el acceso a los datos.
+
+![Diagrama de Arquitectura de Streamliner-AI](assets/architecture-diagram.png)
 
 ## 🚀 Guía de Inicio Rápido
 
