@@ -25,7 +25,7 @@ class HighlightDetector:
         )  # Inicializa el Transcriber
 
         # NUEVAS LÍNEAS: Cargar palabras clave generales y específicas del streamer
-        self.general_keywords = self.config.keywords
+        self.general_keywords = self.config.scoring.keywords
         self.streamer_keywords_map = self.config.streamer_keywords
 
         logger.info(

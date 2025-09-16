@@ -23,6 +23,10 @@ class MockDetectionConfig:
     hype_score_threshold: float = 1.5
     rms_peak_threshold: float = 0.7
     scoring: MockScoringConfig = field(default_factory=MockScoringConfig)
+    streamer_keywords: dict = field(
+        default_factory=dict
+    )  # O un diccionario con datos de ejemplo si es necesario para tests específicos
+    max_clips_per_vod: int = 3
 
 
 @dataclass
@@ -86,7 +90,7 @@ async def test_find_highlights_scoring_logic():
             return_value="mock_segment.wav",
         ) as mock_extract:
             highlights = await detector.find_highlights(
-                "fake_audio.wav", video_duration_sec
+                "fake_audio.wav", video_duration_sec, streamer_name="test_streamer"
             )
 
     # 3. Aserción (Assert)
