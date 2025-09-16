@@ -7,7 +7,7 @@ import os
 import json
 import time  # Importar para manejar timestamps
 import asyncio  # Necesario para asyncio.sleep en el lock
-import math # Para math.ceil en el cálculo de chunks
+import math  # Para math.ceil en el cálculo de chunks
 
 
 class TikTokPublisher:
@@ -22,9 +22,9 @@ class TikTokPublisher:
     MIN_CHUNK_SIZE = 5 * 1024 * 1024
     MAX_CHUNK_SIZE = 64 * 1024 * 1024
 
-    def __init__(self, config, storage): # <-- config es el objeto AppConfig completo
-        self.config = config.publishing # Configuración específica de publicación
-        self.creds = config.credentials["tiktok"] # Credenciales de TikTok
+    def __init__(self, config, storage):  # <-- config es el objeto AppConfig completo
+        self.config = config.publishing  # Configuración específica de publicación
+        self.creds = config.credentials["tiktok"]  # Credenciales de TikTok
         self.storage = storage
 
         if self.creds.environment == "sandbox":
@@ -195,9 +195,11 @@ class TikTokPublisher:
     ) -> bool:
         # *** AJUSTE CLAVE AQUÍ para dry_run ***
         if dry_run:
-            logger.info(f"Modo Dry-Run activado para TikTok. "
-                        f"No se subirá el clip '{file_or_url}'.")
-            return True # Simula éxito en dry-run para no bloquear el pipeline
+            logger.info(
+                f"Modo Dry-Run activado para TikTok. "
+                f"No se subirá el clip '{file_or_url}'."
+            )
+            return True  # Simula éxito en dry-run para no bloquear el pipeline
 
         if not self.creds.access_token or not self.creds.open_id:
             logger.error(
@@ -214,9 +216,11 @@ class TikTokPublisher:
                 "title": self.config.description_template.format(
                     streamer_name=streamer, game_name="Gaming", clip_title="¡Momentazo!"
                 ),
-                "privacy_level": "SELF_ONLY", # O el nivel de privacidad que desees en producción
+                "privacy_level": "SELF_ONLY",  # O el nivel de privacidad que desees en producción
             }
-            return await self.upload_video(file_or_url, direct_post=True, **post_details)
+            return await self.upload_video(
+                file_or_url, direct_post=True, **post_details
+            )
 
     async def upload_video(
         self, video_path: str, direct_post: bool = False, **post_info
@@ -233,7 +237,7 @@ class TikTokPublisher:
 
         file_size = os.path.getsize(video_path)
 
-        standard_chunk_size = 20 * 1024 * 1024 # 20 MB
+        standard_chunk_size = 20 * 1024 * 1024  # 20 MB
 
         if file_size <= standard_chunk_size:
             chunk_size = file_size
