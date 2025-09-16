@@ -11,7 +11,7 @@ from .cutter import VideoCutter
 from .render import VideoRenderer
 from .publisher.tiktok import TikTokPublisher
 from .storage import get_storage
-from .detector import HighlightDetector  # <-- Importación restaurada
+from .detector import HighlightDetector
 
 
 # ==============================================================================
@@ -31,11 +31,16 @@ async def process_single_file(
     # 1. Detección de Highlights en el VOD completo
     audio_path = None
     try:
-        audio_path = await _extract_audio(video_path)
+        # CAMBIO AQUÍ: Pasar video_path.parent como output_dir
+        audio_path = await _extract_audio(video_path, video_path.parent)
         detector = HighlightDetector(config)
         # TODO: Obtener duración real del video dinámicamente
         video_duration_sec = 3600 * 2  # Asumimos 2 horas para el scoring
-        highlights = await detector.find_highlights(str(audio_path), video_duration_sec)
+        highlights = await detector.find_highlights(
+            str(audio_path),
+            video_duration_sec,
+            streamer_name=streamer,
+        )
 
         if not highlights:
             logger.warning(f"No se encontraron highlights en '{video_path.name}'.")
@@ -77,8 +82,8 @@ async def process_single_file(
 
 
 # ==============================================================================
-# FUNCIÓN PARA EL MODO DE TIEMPO REAL (CHUNKS)
-# Esta función es llamada por el `worker.py`
+# FUNCIÓN PARA EL MODO DE TIEMPO REAL (CHUNKS) O CLIPS CORTADOS
+# Esta función es llamada por el `worker.py` o por `process_single_file`
 # ==============================================================================
 async def process_and_create_clip(
     config: AppConfig,
@@ -98,7 +103,7 @@ async def process_and_create_clip(
     try:
         # Transcribir el Clip para Subtítulos
         transcriber = Transcriber(config.transcription)
-        clip_audio_path = await _extract_audio(video_path)
+        clip_audio_path = await _extract_audio(video_path, video_path.parent)
         temp_files.append(clip_audio_path)
         transcription = await transcriber.transcribe(clip_audio_path)
 
@@ -117,7 +122,7 @@ async def process_and_create_clip(
                 line_number += 1
 
         # Renderizar el Clip Vertical
-        renderer = VideoRenderer(config)
+        renderer = VideoRenderer(config.rendering)
         final_clip_dir = Path(config.downloader.local_storage_path) / "clips_generados"
         final_clip_dir.mkdir(parents=True, exist_ok=True)
         final_clip_path = final_clip_dir / f"{video_path.stem}_final.mp4"
@@ -127,12 +132,28 @@ async def process_and_create_clip(
         )
 
         # Publicar el Clip
-        publisher = TikTokPublisher(config, storage)
-        if config.storage.storage_type in ["s3", "r2"]:
-            remote_key = await storage.upload(final_clip_path, final_clip_path.name)
-            await publisher.upload_clip(remote_key, streamer, dry_run=dry_run)
+        # La instancia de TikTokPublisher necesita config (completa) y storage
+        publisher = TikTokPublisher(
+            config, storage
+        )  # <--- Usar 'config' y 'storage' como parámetros
+
+        # *** EL AJUSTE CRÍTICO PARA DRY-RUN EN PIPELINE ***
+        # Aseguramos que la publicación solo ocurra si NO es dry_run.
+        # El método upload_clip de TikTokPublisher también manejará su propio dry_run.
+        if dry_run:
+            logger.info("Modo Dry-Run: La publicación del clip ha sido omitida.")
         else:
-            await publisher.upload_clip(str(final_clip_path), streamer, dry_run=dry_run)
+            if config.storage.storage_type in ["s3", "r2"]:
+                # Si usas almacenamiento remoto, sube primero al bucket y luego publica con la URL.
+                remote_key = await storage.upload(final_clip_path, final_clip_path.name)
+                await publisher.upload_clip(
+                    remote_key, streamer
+                )  # dry_run se gestiona internamente en TikTokPublisher
+            else:
+                # Si usas almacenamiento local, publica directamente la ruta local del archivo.
+                await publisher.upload_clip(
+                    str(final_clip_path), streamer
+                )  # dry_run se gestiona internamente en TikTokPublisher
 
     finally:
         logger.debug(f"Limpiando archivos temporales para {video_path.name}...")
@@ -142,15 +163,22 @@ async def process_and_create_clip(
                     os.remove(f)
                 except OSError as e:
                     logger.warning(f"No se pudo eliminar el archivo temporal {f}: {e}")
+        # Asegúrate de limpiar también el clip final generado si no estamos en dry_run
+        # y no se subió o si se subió pero no queremos guardarlo localmente.
+        # Esto depende de tu política de limpieza. Por ahora, no lo elimino si se generó bien.
 
 
 # --- Funciones de Ayuda ---
 
 
-async def _extract_audio(video_path: Path) -> Path:
-    """Extrae el audio de un video a un formato WAV."""
-    audio_path = video_path.with_suffix(".wav")
-    logger.info(f"Extrayendo y convirtiendo audio de '{video_path.name}' a WAV...")
+async def _extract_audio(video_path: Path, output_dir: Path) -> Path:
+    """Extrae el audio de un video a un formato WAV y lo guarda en output_dir."""
+
+    audio_path = output_dir / f"{video_path.stem}.wav"
+
+    logger.info(
+        f"Extrayendo y convirtiendo audio de '{video_path.name}' a WAV en '{output_dir.name}'..."
+    )
     args = [
         "ffmpeg",
         "-y",
@@ -171,8 +199,10 @@ async def _extract_audio(video_path: Path) -> Path:
     stdout, stderr = await process.communicate()
     if process.returncode != 0:
         logger.error(f"Error al extraer audio: {stderr.decode()}")
-        raise RuntimeError("Fallo en la extracción de audio con ffmpeg.")
-    logger.success("Extracción de audio a WAV completada.")
+        raise RuntimeError(
+            f"Fallo en la extracción de audio con ffmpeg para {video_path.name}."
+        )
+    logger.success(f"Extracción de audio a WAV completada: {audio_path.name}.")
     return audio_path
 
 

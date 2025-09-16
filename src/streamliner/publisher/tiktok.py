@@ -7,6 +7,7 @@ import os
 import json
 import time  # Importar para manejar timestamps
 import asyncio  # Necesario para asyncio.sleep en el lock
+import math # Para math.ceil en el cálculo de chunks
 
 
 class TikTokPublisher:
@@ -21,9 +22,9 @@ class TikTokPublisher:
     MIN_CHUNK_SIZE = 5 * 1024 * 1024
     MAX_CHUNK_SIZE = 64 * 1024 * 1024
 
-    def __init__(self, config, storage):
-        self.config = config.publishing
-        self.creds = config.credentials["tiktok"]
+    def __init__(self, config, storage): # <-- config es el objeto AppConfig completo
+        self.config = config.publishing # Configuración específica de publicación
+        self.creds = config.credentials["tiktok"] # Credenciales de TikTok
         self.storage = storage
 
         if self.creds.environment == "sandbox":
@@ -34,30 +35,15 @@ class TikTokPublisher:
 
         self.client = httpx.AsyncClient(timeout=120)
 
-        # Añadimos atributos para la gestión de tokens y su caducidad
         self._access_token = self.creds.access_token
         self._refresh_token = self.creds.refresh_token
-        self._token_expires_at = 0  # Unix timestamp de cuando expira el token actual
-        self._refresh_token_lock = False  # Para evitar refrescos concurrentes
-
-        # Al inicializar, obtenemos la información del token si es la primera vez
-        # o asumimos que el token actual es válido por ahora.
-        # En una solución más robusta, se guardaría también la fecha de caducidad.
-        # Por ahora, refrescaremos proactivamente si está cerca de expirar.
+        self._token_expires_at = 0
+        self._refresh_token_lock = False
 
     async def _get_valid_access_token(self) -> str | None:
         """
         Devuelve un access_token válido, refrescándolo si es necesario.
         """
-        # --- MODIFICACIÓN TEMPORAL PARA PRUEBA DE REFRESH ---
-        # Fuerza que el token parezca caducado para activar el refresco.
-        # Comenta o elimina esta línea después de la prueba.
-        # self._token_expires_at = (
-        #    time.time() - 100
-        # )  # Hace que el token caducara hace 100 segundos
-        # --- FIN DE MODIFICACIÓN TEMPORAL ---
-
-        # Si el token no ha sido establecido o si va a expirar en los próximos 5 minutos
         if not self._access_token or (
             self._token_expires_at - time.time() < 300
         ):  # 300 segundos = 5 minutos
@@ -77,10 +63,8 @@ class TikTokPublisher:
             logger.info(
                 "Ya hay una operación de refresco de token en progreso. Esperando..."
             )
-            # En un entorno concurrente real, se usaría un asyncio.Lock
-            # Para este caso, una simple bandera es suficiente si se gestiona bien.
             while self._refresh_token_lock:
-                await asyncio.sleep(1)  # Esperar un poco y reintentar
+                await asyncio.sleep(1)
             return
 
         self._refresh_token_lock = True
@@ -97,19 +81,16 @@ class TikTokPublisher:
             response = await self.client.post(REFRESH_TOKEN_URL, data=payload)
             response.raise_for_status()
 
-            # CORRECCIÓN: Los tokens están directamente en el objeto JSON raíz
             token_data = response.json()
 
             new_access_token = token_data.get("access_token")
             new_refresh_token = token_data.get("refresh_token")
-            expires_in = token_data.get(
-                "expires_in"
-            )  # Vida útil del nuevo access_token en segundos
+            expires_in = token_data.get("expires_in")
 
             if new_access_token:
                 self._access_token = new_access_token
                 self._token_expires_at = time.time() + expires_in
-                if new_refresh_token:  # A veces el refresh_token también puede cambiar
+                if new_refresh_token:
                     self._refresh_token = new_refresh_token
 
                 logger.success(
@@ -118,26 +99,17 @@ class TikTokPublisher:
                 logger.debug(
                     f"Nuevo Access Token (últimos 4): ...{self._access_token[-4:]}"
                 )
-
-                # Opcional: Persistir los nuevos tokens en el .env o una DB
-                # Por ahora, se mantendrá en memoria. Si el bot se reinicia,
-                # se cargará el antiguo del .env y se refrescará de nuevo.
-                # Para un sistema robusto, se debería reescribir el .env o usar una DB.
-                # Ejemplo rudimentario de cómo podrías actualizar el .env si fuera necesario:
-                # self._update_env_tokens(self._access_token, self._refresh_token)
             else:
                 logger.error(
                     "No se recibió un nuevo access_token en la respuesta de refresco."
                 )
-                self._access_token = (
-                    None  # Invalidar el token para forzar un reintento o fallo
-                )
+                self._access_token = None
         except httpx.HTTPStatusError as e:
             logger.error(
                 f"Error HTTP al refrescar el token: {e.response.status_code} - {e.response.text}"
             )
             self._access_token = None
-            raise  # Re-lanzar para que tenacity lo reintente
+            raise
         except Exception as e:
             logger.error(f"Error inesperado al refrescar el token: {e}")
             self._access_token = None
@@ -192,7 +164,7 @@ class TikTokPublisher:
             return None
 
         headers = {
-            "Authorization": f"Bearer {access_token}",  # Usar el token validado
+            "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json; charset=UTF-8",
         }
         try:
@@ -217,37 +189,34 @@ class TikTokPublisher:
             )
             return None
 
-    # ¡ESTE ES EL MÉTODO QUE FALTABA Y CAUSABA EL AttributeError!
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(5))
     async def upload_clip(
-        self, video_path: str, streamer: str, dry_run: bool = False
+        self, file_or_url: str, streamer: str, dry_run: bool = False
     ) -> bool:
+        # *** AJUSTE CLAVE AQUÍ para dry_run ***
+        if dry_run:
+            logger.info(f"Modo Dry-Run activado para TikTok. "
+                        f"No se subirá el clip '{file_or_url}'.")
+            return True # Simula éxito en dry-run para no bloquear el pipeline
+
         if not self.creds.access_token or not self.creds.open_id:
             logger.error(
-                "El Access Token o el Open ID de TikTok no están configurados en el .env"
+                "El Access Token o el Open ID de TikTok no están configurados en la configuración."
             )
             return False
 
-        if dry_run and self.creds.environment != "sandbox":
-            logger.warning(
-                f"[DRY-RUN] Simulación de subida del clip {video_path} a TikTok."
-            )
-            return True
-
         if self.creds.environment == "sandbox":
-            logger.info(f"Enviando clip de prueba al SANDBOX de TikTok: {video_path}")
+            logger.info(f"Enviando clip de prueba al SANDBOX de TikTok: {file_or_url}")
             # En Sandbox, solo podemos subir como borrador (direct_post=False)
-            return await self.upload_video(video_path, direct_post=False)
+            return await self.upload_video(file_or_url, direct_post=False)
         else:  # Entorno de Producción
-            # Aquí podrías decidir si hacer direct_post o no.
-            # Por defecto, subimos como borrador para más seguridad.
             post_details = {
                 "title": self.config.description_template.format(
                     streamer_name=streamer, game_name="Gaming", clip_title="¡Momentazo!"
                 ),
-                "privacy_level": "SELF_ONLY",
+                "privacy_level": "SELF_ONLY", # O el nivel de privacidad que desees en producción
             }
-            return await self.upload_video(video_path, direct_post=True, **post_details)
+            return await self.upload_video(file_or_url, direct_post=True, **post_details)
 
     async def upload_video(
         self, video_path: str, direct_post: bool = False, **post_info
@@ -264,19 +233,14 @@ class TikTokPublisher:
 
         file_size = os.path.getsize(video_path)
 
-        # --- LÓGICA DE CHUNKS CORREGIDA Y DEFINITIVA ---
-        # Definimos un tamaño de chunk estándar y seguro (ej. 20 MB)
-        standard_chunk_size = 20 * 1024 * 1024
+        standard_chunk_size = 20 * 1024 * 1024 # 20 MB
 
         if file_size <= standard_chunk_size:
-            # Si el archivo es más pequeño, se sube en un solo chunk del tamaño del archivo.
             chunk_size = file_size
             total_chunks = 1
         else:
-            # Si es más grande, usamos el tamaño estándar y calculamos los chunks.
             chunk_size = standard_chunk_size
             total_chunks = math.ceil(file_size / chunk_size)
-        # --- FIN DE LA CORRECCIÓN ---
 
         if direct_post:
             logger.info("Intentando publicación directa...")
@@ -288,7 +252,6 @@ class TikTokPublisher:
         else:
             logger.info("Intentando subir como borrador a la bandeja de entrada...")
             init_url = f"{self.base_url}/post/publish/inbox/video/init/"
-            # Añadimos de nuevo los parámetros requeridos por el endpoint de borrador
             payload = {
                 "source_info": {
                     "source": "FILE_UPLOAD",
@@ -305,7 +268,6 @@ class TikTokPublisher:
         upload_url = init_data["upload_url"]
         publish_id = init_data["publish_id"]
 
-        # La subida por chunks usará el chunk_size que calculamos.
         upload_success = await self._perform_chunked_upload(
             upload_url, video_path, file_size, chunk_size
         )

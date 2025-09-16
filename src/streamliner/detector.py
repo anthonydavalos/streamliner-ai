@@ -1,5 +1,3 @@
-# src/streamliner/detector.py
-
 import asyncio
 import os
 import numpy as np
@@ -9,7 +7,7 @@ from loguru import logger
 from pathlib import Path
 
 from .stt import Transcriber
-from .config import AppConfig
+from .config import AppConfig  # Importa AppConfig y DetectionConfig
 
 
 class HighlightDetector:
@@ -19,9 +17,26 @@ class HighlightDetector:
     esos segmentos, ahorrando una enorme cantidad de tiempo de procesamiento.
     """
 
+    # MODIFICACIÓN 1: El constructor ahora recibe AppConfig completa
     def __init__(self, config: AppConfig):
-        self.config = config.detection
-        self.transcriber = Transcriber(config.transcription)
+        self.config = config.detection  # Almacena solo la DetectionConfig
+        self.transcriber = Transcriber(
+            config.transcription
+        )  # Inicializa el Transcriber
+
+        # NUEVAS LÍNEAS: Cargar palabras clave generales y específicas del streamer
+        self.general_keywords = self.config.keywords
+        self.streamer_keywords_map = self.config.streamer_keywords
+
+        logger.info(
+            f"HighlightDetector inicializado con umbral de hype: {self.config.hype_score_threshold}"
+        )
+        logger.debug(
+            f"Palabras clave generales cargadas: {list(self.general_keywords.keys())}"
+        )
+        logger.debug(
+            f"Palabras clave de streamers cargadas para: {list(self.streamer_keywords_map.keys())}"
+        )
 
     async def _extract_audio_segment(
         self, main_audio_path: Path, start: float, end: float
@@ -46,9 +61,12 @@ class HighlightDetector:
         process = await asyncio.create_subprocess_exec(
             *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
-        await process.communicate()
+        stdout, stderr = await process.communicate()  # Capturamos stdout y stderr
         if process.returncode != 0:
-            logger.error(f"No se pudo extraer el segmento de audio: {segment_path}")
+            logger.error(
+                f"No se pudo extraer el segmento de audio: {segment_path}. "
+                f"FFmpeg Error: {stderr.decode().strip()}"  # Añadimos el error de ffmpeg
+            )
             return None
         return segment_path
 
@@ -74,13 +92,16 @@ class HighlightDetector:
         ]
         return np.array(rms_values)
 
-    # Dentro de la clase HighlightDetector en src/streamliner/detector.py
-    # Reemplaza la función find_highlights completa con esta.
-
+    # MODIFICACIÓN 2: find_highlights ahora acepta streamer_name
     async def find_highlights(
-        self, audio_path_str: str, video_duration_sec: float
+        self,
+        audio_path_str: str,
+        video_duration_sec: float,
+        streamer_name: str,  # NUEVO: streamer_name
     ) -> list[dict]:
-        logger.info("Iniciando detección de highlights (Modo Eficiente)...")
+        logger.info(
+            f"Iniciando detección de highlights (Modo Eficiente) para {streamer_name}..."
+        )
         audio_path = Path(audio_path_str)
 
         # --- PASO 1: Análisis Rápido de Energía en todo el audio ---
@@ -132,20 +153,20 @@ class HighlightDetector:
                     continue
 
                 transcription = await self.transcriber.transcribe(segment_audio_path)
-                logger.debug(
-                    f"Texto del segmento transcrito: '{transcription['text']}'"
-                )
+                segment_text = transcription.get(
+                    "text", ""
+                )  # Obtener el texto del segmento
+                logger.debug(f"Texto del segmento transcrito: '{segment_text}'")
 
-                keyword_score = 0
-                for segment in transcription["segments"]:
-                    text = segment["text"].lower()
-                    for keyword, weight in self.config.scoring.keywords.items():
-                        if keyword in text:
-                            keyword_score += weight
+                # MODIFICACIÓN 3: Usar la nueva función para calcular el score de palabras clave
+                keyword_score = self._calculate_keyword_score(
+                    segment_text, streamer_name
+                )
 
                 final_hype_score = (
                     normalized_rms[peak_idx] * self.config.scoring.rms_weight
                     + keyword_score * self.config.scoring.keyword_weight
+                    # Si implementas scene_change, iría aquí sumando su peso
                 )
 
                 if final_hype_score >= self.config.hype_score_threshold:
@@ -154,10 +175,11 @@ class HighlightDetector:
                             "start": start_time,
                             "end": end_time,
                             "score": final_hype_score,
+                            "text": segment_text,  # Guardar el texto transcrito del highlight
                         }
                     )
                     logger.success(
-                        f"Candidato Confirmado! Score: {final_hype_score:.2f}, Tiempo: {start_time:.2f}s - {end_time:.2f}s"
+                        f"Candidato Confirmado! Score: {final_hype_score:.2f}, Tiempo: {start_time:.2f}s - {end_time:.2f}s, Keywords: {keyword_score:.2f}"
                     )
 
             finally:
@@ -165,6 +187,41 @@ class HighlightDetector:
                     os.remove(segment_audio_path)
 
         logger.info(
-            f"Se confirmaron {len(candidate_highlights)} highlights tras el análisis de palabras clave."
+            f"Se confirmaron {len(candidate_highlights)} highlights tras el análisis de palabras clave para {streamer_name}."
         )
-        return sorted(candidate_highlights, key=lambda x: x["score"], reverse=True)
+        return sorted(candidate_highlights, key=lambda x: x["score"], reverse=True)[
+            : self.config.max_clips_per_vod
+        ]  # Limita a max_clips_per_vod
+
+    # NUEVA FUNCIÓN: _calculate_keyword_score
+    def _calculate_keyword_score(self, text_segment: str, streamer_name: str) -> float:
+        """
+        Calcula la puntuación de palabras clave para un segmento de texto.
+        Prioriza las palabras clave específicas del streamer sobre las generales.
+        """
+        score = 0.0
+
+        # Obtener las palabras clave específicas del streamer actual
+        current_streamer_specific_keywords = self.streamer_keywords_map.get(
+            streamer_name, {}
+        )
+
+        # Fusionar las palabras clave: las del streamer tienen prioridad
+        # Si una palabra está en ambas listas, el peso de streamer_keywords_map prevalece
+        combined_keywords = {
+            **self.general_keywords,
+            **current_streamer_specific_keywords,
+        }
+
+        logger.debug(
+            f"Palabras clave combinadas para {streamer_name}: {list(combined_keywords.keys())}"
+        )
+
+        for keyword, weight in combined_keywords.items():
+            # Usar 'in' para que detecte la palabra dentro del texto
+            if keyword.lower() in text_segment.lower():
+                score += weight
+                logger.debug(
+                    f"Keyword '{keyword}' encontrada en '{text_segment}'. Score +{weight} = {score}"
+                )
+        return score

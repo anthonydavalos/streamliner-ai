@@ -1,5 +1,4 @@
-# Dentro de src/streamliner/render.py
-# Reemplaza la función render_vertical_clip completa con esta versión final.
+# src/streamliner/render.py - CÓDIGO CORREGIDO
 
 import asyncio
 import platform
@@ -9,7 +8,8 @@ from loguru import logger
 
 class VideoRenderer:
     def __init__(self, config):
-        self.config = config.rendering
+        # self.config ahora es directamente el objeto RenderingConfig
+        self.config = config
 
     async def render_vertical_clip(
         self, input_path: str, output_path: str, srt_path: str
@@ -19,43 +19,78 @@ class VideoRenderer:
         """
         logger.info(f"Renderizando clip vertical: {output_path}")
 
-        # --- INICIO DE LA CORRECCIÓN FINAL ---
         srt_posix_path = Path(srt_path).resolve().as_posix()
 
-        # Para FFmpeg en Windows, la ruta del filtro de subtítulos debe ser formateada
-        # de una manera muy específica para evitar errores de parseo.
+        # Corrección del escape de ruta para Windows en FFmpeg:
         if platform.system() == "Windows":
-            # 1. Escapamos la barra invertida para el carácter de escape
-            # 2. Escapamos los dos puntos del drive letter (C:)
-            # 3. Envolvemos toda la ruta en comillas simples
-            srt_escaped_path = srt_posix_path.replace("\\", "/").replace(":", "\\:")
-            srt_final_path = f"'{srt_escaped_path}'"
+            srt_final_path = srt_posix_path.replace(":", "\\:", 1)
         else:
             srt_final_path = srt_posix_path
-        # --- FIN DE LA CORRECCIÓN FINAL ---
 
-        filter_complex = (
-            # Escala el video principal para que ocupe todo el ancho 1080px (o el alto si es vertical)
-            # Luego lo centra y lo usa como fondo con desenfoque.
-            f"[0:v]split=2[v1][v2];"
-            f"[v1]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
-            f"boxblur=20:10[bg];"  # Fondo desenfocado
-            # Escala la parte principal del video. Si el original es horizontal, lo hará más pequeño
-            # para que quepa en el centro del clip vertical (por ejemplo, 1080x608 para 16:9 en 9:16).
-            f"[v2]scale='w=min(iw,1080)':'h=-2':force_original_aspect_ratio=decrease[fg];"  # Primer plano
-            # Superpone el video principal (fg) sobre el fondo (bg) y lo centra.
-            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,"
-            # Añade los subtítulos
-            f"subtitles={srt_final_path}:force_style='{self.config.subtitle_style}'"
+        # El filtro de subtítulos requiere que la ruta esté entre comillas simples dentro del propio string del filtro.
+        srt_final_path_in_filter = f"'{srt_final_path}'"
+
+        output_width = 1080
+        output_height = 1920  # Siempre será 1920 para el output final
+
+        # --- Obtener fg_zoom_factor de la configuración ---
+        # ¡CAMBIO AQUÍ! Acceder directamente como atributo del objeto self.config
+        fg_zoom_factor = self.config.fg_zoom_factor
+
+        # Calcular la altura deseada para el foreground, aplicando el zoom factor
+        target_fg_height = int(output_height * fg_zoom_factor)
+
+        # FILTRO PARA EL FONDO (BG):
+        # Escala el video para que llene completamente el 1080x1920
+        # (se hará un "zoom" si es 16:9, recortando los lados) y luego lo desenfoca.
+        bg_filter = (
+            f"scale={output_width}:{output_height}:force_original_aspect_ratio=increase,"
+            f"crop={output_width}:{output_height},boxblur=20:10"
         )
 
+        # FILTRO PARA EL PRIMER PLANO (FG):
+        fg_filter = (
+            f"scale='h={target_fg_height}:w=-2':force_original_aspect_ratio=increase,"
+            f"crop={output_width}:{target_fg_height}"  # El crop aquí asegura que el ancho máximo del FG sea 1080 y la altura sea target_fg_height.
+        )
+
+        # --- LÓGICA PARA FG_OFFSET_X y FG_OFFSET_Y ---
+        # ¡CAMBIO AQUÍ! Acceder directamente como atributos del objeto self.config
+        fg_offset_x_cfg = self.config.fg_offset_x
+        fg_offset_y_cfg = self.config.fg_offset_y
+
+        # Convertir 'center' o valores numéricos a expresiones de FFmpeg
+        # (W-w)/2 centra el primer plano (w) en el fondo (W)
+        overlay_x = "(W-w)/2" if fg_offset_x_cfg == "center" else str(fg_offset_x_cfg)
+        overlay_y = "(H-h)/2" if fg_offset_y_cfg == "center" else str(fg_offset_y_cfg)
+        # --------------------------------------------------
+
         logo_input = []
+        final_filter_complex = ""
+
+        # ¡CAMBIO AQUÍ! Acceder directamente como atributo del objeto self.config
         if self.config.logo_path and Path(self.config.logo_path).exists():
             logo_posix_path = Path(self.config.logo_path).resolve().as_posix()
             logo_input = ["-i", logo_posix_path]
-            filter_complex += (
-                "[out];[1:v]scale=150:-1[logo];[out][logo]overlay=W-w-30:30"
-            )
+
+            final_filter_complex = f"""
+[0:v]split=2[v1][v2];
+[v1]{bg_filter}[bg];
+[v2]{fg_filter}[fg];
+[bg][fg]overlay={overlay_x}:{overlay_y},
+subtitles={srt_final_path_in_filter}:force_style='{self.config.subtitle_style}'[video_with_subs];
+[1:v]scale=150:-1[logo];
+[video_with_subs][logo]overlay=W-w-30:30
+"""
+        else:
+            final_filter_complex = f"""
+[0:v]split=2[v1][v2];
+[v1]{bg_filter}[bg];
+[v2]{fg_filter}[fg];
+[bg][fg]overlay={overlay_x}:{overlay_y},
+subtitles={srt_final_path_in_filter}:force_style='{self.config.subtitle_style}'
+"""
+        final_filter_complex = final_filter_complex.strip()
 
         args = [
             "ffmpeg",
@@ -64,7 +99,7 @@ class VideoRenderer:
             input_path,
             *logo_input,
             "-filter_complex",
-            filter_complex,
+            final_filter_complex,
             "-c:v",
             "libx264",
             "-preset",

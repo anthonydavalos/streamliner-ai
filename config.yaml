@@ -6,7 +6,7 @@ streamers:
   - "elpadredomingooficiall"
   - "francovidalalcalde"
   - "sachauzumaki"
-  - "zullyy_cs"
+  - "robertoartigass"
   - "luisormenoa27"
   # - "otro_streamer"
 
@@ -30,255 +30,323 @@ detection:
   rms_peak_threshold: 0.92
   # Parámetros de la fórmula de scoring
   scoring:
-    rms_weight: 0.6
-    keyword_weight: 0.2
+    rms_weight: 0.4
+    keyword_weight: 0.6
     scene_change_boost: 0.2 # Bonus si el pico coincide con un cambio de escena
-    # Palabras clave y su "peso" en la puntuación de hype
-    keywords:
-      # =================================================
-      # === TIER DIOS (5.0): Casi siempre es un clip. ===
-      # =================================================
-      "ptm": 5.0
-      "clutch": 5.0
-      "csmr": 4.8
-      "mierda": 4.5
-      "buenarda": 4.5
+  # Palabras clave y su "peso" en la puntuación de hype
+  keywords:
+    # =================================================
+    # === TIER DIOS (5.0): Casi siempre es un clip. ===
+    # =================================================
+    "ptm": 5.0
+    "clutch": 5.0
+    "csmr": 4.8
+    "mierda": 4.5
+    "buenarda": 4.5
 
-      # =================================================
-      # === SORPRESA Y ASOMBRO (4.0 - 4.4) ===
-      # =================================================
-      "asu mare": 4.2
-      "no te creo": 4.0
-      "qué chucha": 4.0
-      "no me jodas": 3.8
-      "conchetumare": 4.4
-      "qué es eso": 4.0
-      "imposible": 4.1
-      "a la mierda": 4.3
+    # =================================================
+    # === SORPRESA Y ASOMBRO (4.0 - 4.4) ===
+    # =================================================
+    "asu mare": 4.2
+    "no te creo": 4.0
+    "qué chucha": 4.0
+    "no me jodas": 3.8
+    "conchetumare": 4.4
+    "qué es eso": 4.0
+    "imposible": 4.1
+    "a la mierda": 4.3
 
-      # =================================================
-      # === VICTORIA Y JUGADAS ÉPICAS (3.5 - 4.4) ===
-      # =================================================
-      "qué pro": 4.0
-      "se la comió": 3.8
-      "una bestia": 3.5
-      "qué buena": 3.8
-      "remontada": 4.4
-      "lo maté": 3.9
-      "lo logré": 4.0
-      "ganamos": 4.2
-      "izipay": 3.5 # (Easy peasy)
-      "qué nivel": 3.7
-      "la hizo linda": 3.9
+    # =================================================
+    # === VICTORIA Y JUGADAS ÉPICAS (3.5 - 4.4) ===
+    # =================================================
+    "qué pro": 4.0
+    "se la comió": 3.8
+    "una bestia": 3.5
+    "qué buena": 3.8
+    "remontada": 4.4
+    "lo maté": 3.9
+    "lo logré": 4.0
+    "ganamos": 4.2
+    "izipay": 3.5 # (Easy peasy)
+    "qué nivel": 3.7
+    "la hizo linda": 3.9
 
-      # =================================================
-      # === FRUSTRACIÓN Y FAILS (2.5 - 3.9) ===
-      # =================================================
-      "qué rata": 3.0
-      "qué asco": 2.8
-      "piña pues": 3.2
-      "ya fue": 2.5
-      "me muero": 3.0
-      "joder": 3.3
-      "la cagué": 3.6
-      "manco": 2.9
-      "por la puta": 3.9
-      "no puede ser": 3.7
-      "qué pendejo": 3.4
-      "me mataron": 2.8
-      "qué salado": 3.1
+    # =================================================
+    # === FRUSTRACIÓN Y FAILS (2.5 - 3.9) ===
+    # =================================================
+    "qué rata": 3.0
+    "qué asco": 2.8
+    "piña pues": 3.2
+    "ya fue": 2.5
+    "me muero": 3.0
+    "joder": 3.3
+    "la cagué": 3.6
+    "manco": 2.9
+    "por la puta": 3.9
+    "no puede ser": 3.7
+    "qué pendejo": 3.4
+    "me mataron": 2.8
+    "qué salado": 3.1
 
-      # =================================================
-      # === EXCLAMACIONES Y ONOMATOPEYAS (2.5 - 3.9) ===
-      # =================================================
-      "fuaa": 3.5
-      "vamos": 3.5
-      "toma": 3.0
-      "noo": 3.5
-      "qué": 3.0
-      "uff": 2.5
-      "ayayay": 3.1
-      "puta qué": 3.9
-      "uy": 2.6
-      "epa": 2.5
-      "boom": 3.2
-      "pum": 2.8
-      "zas": 2.9
+    # =================================================
+    # === EXCLAMACIONES Y ONOMATOPEYAS (2.5 - 3.9) ===
+    # =================================================
+    "fuaa": 3.5
+    "vamos": 3.5
+    "toma": 3.0
+    "noo": 3.5
+    "qué": 3.0
+    "uff": 2.5
+    "ayayay": 3.1
+    "puta qué": 3.9
+    "uy": 2.6
+    "epa": 2.5
+    "boom": 3.2
+    "pum": 2.8
+    "zas": 2.9
 
-      # =================================================
-      # === JERGA PERUANA Y DE COMUNIDAD (1.0 - 2.4) ===
-      # =================================================
-      "ala": 1.8
-      "oe": 1.5
-      "causa": 1.2
-      "papi": 1.8
-      "habla": 1.5
-      "yara": 2.0
-      "batería": 1.3
-      "asu": 2.2
-      "mano": 1.4
-      "cholo": 1.6
-      "flaco": 1.2
-      "germa": 1.1 # (jerma)
-      "pata": 1.3
-      "chamba": 1.0
-      "palta": 2.4 # (qué palta!)
-      "roche": 2.3
-      "alucina": 2.1
-      "qué fue": 1.9
+    # =================================================
+    # === JERGA PERUANA Y DE COMUNIDAD (1.0 - 2.4) ===
+    # =================================================
+    "ala": 1.8
+    "oe": 1.5
+    "causa": 1.2
+    "papi": 1.8
+    "habla": 1.5
+    "yara": 2.0
+    "batería": 1.3
+    "asu": 2.2
+    "mano": 1.4
+    "cholo": 1.6
+    "flaco": 1.2
+    "germa": 1.1 # (jerma)
+    "pata": 1.3
+    "chamba": 1.0
+    "palta": 2.4 # (qué palta!)
+    "roche": 2.3
+    "alucina": 2.1
+    "qué fue": 1.9
 
-      # =================================================
-      # === RISAS Y HUMOR (2.0 - 3.7) ===
-      # =================================================
-      "jajaja": 2.0
-      "me cago": 3.5 # (de risa)
-      "xdd": 2.0
-      "buen chiste": 2.5
-      "qué gracioso": 2.2
-      "estoy tentando": 3.7 # (tentado de risa)
-      "ctmre": 3.6 # (usado también para risa)
+    # =================================================
+    # === RISAS Y HUMOR (2.0 - 3.7) ===
+    # =================================================
+    "jajaja": 2.0
+    "me cago": 3.5 # (de risa)
+    "xdd": 2.0
+    "buen chiste": 2.5
+    "qué gracioso": 2.2
+    "estoy tentando": 3.7 # (tentado de risa)
+    "ctmre": 3.6 # (usado también para risa)
 
-      # =================================================
-      # === GAMING (TÉRMINOS ESPECÍFICOS) ===
-      # =================================================
-      # -- General --
-      "gg": 2.0
-      "report": 2.6
-      "carrea": 3.4
-      "tilteado": 2.8
-      "stompeada": 3.1
-      "tryhard": 2.5
-      " fedea": 2.9 # (feedea)
-      "baiteo": 3.3
-      # -- Shooters (Valorant, CS) --
-      "headshot": 3.8
-      "headey": 3.9
-      "one tap": 4.1
-      "ace": 4.7
-      "ninja defuse": 4.9
-      "rushea": 2.7
-      "holdea": 2.1
-      "wallbang": 3.6
-      "flick": 3.9
-      "no scope": 4.2
-      "eco": 1.5
-      "full buy": 1.8
-      # -- MOBAs (Dota 2, LoL) --
-      "rampage": 4.8
-      "gank": 3.2
-      "ulti": 3.0
-      "bkb": 2.5
-      "gg ctm": 3.7
-      "buen ward": 2.1
-      "deniega": 2.4
-      "farmear": 1.5
-      "pushear": 2.3
-      "backdoor": 4.3
+    # =================================================
+    # === GAMING (TÉRMINOS ESPECÍFICOS) ===
+    # =================================================
+    # -- General --
+    "gg": 2.0
+    "report": 2.6
+    "carrea": 3.4
+    "tilteado": 2.8
+    "stompeada": 3.1
+    "tryhard": 2.5
+    " fedea": 2.9 # (feedea)
+    "baiteo": 3.3
+    # -- Shooters (Valorant, CS) --
+    "headshot": 3.8
+    "headey": 3.9
+    "one tap": 4.1
+    "ace": 4.7
+    "ninja defuse": 4.9
+    "rushea": 2.7
+    "holdea": 2.1
+    "wallbang": 3.6
+    "flick": 3.9
+    "no scope": 4.2
+    "eco": 1.5
+    "full buy": 1.8
+    # -- MOBAs (Dota 2, LoL) --
+    "rampage": 4.8
+    "gank": 3.2
+    "ulti": 3.0
+    "bkb": 2.5
+    "gg ctm": 3.7
+    "buen ward": 2.1
+    "deniega": 2.4
+    "farmear": 1.5
+    "pushear": 2.3
+    "backdoor": 4.3
 
-      # =================================================
-      # === AMPLIFICADORES Y FRASES COMUNES ===
-      # =================================================
-      "cuidado": 2.2
-      "mira": 1.7
-      "atento": 2.3
-      "ahora": 2.5
-      "ese": 1.6
-      "esa": 1.6
-      "con todo": 3.1
-      "sin miedo": 3.3
-      "a ver": 1.9
-      "qué rico": 2.7
-      "qué abuso": 3.6
-      "qué locura": 3.9
-      "qué bestia": 3.8
-      "es un dios": 4.1
-      "no lo vi": 2.4
-      "por un pelo": 3.7
-      "casi": 3.2
-      "lo sabía": 2.9
-      "te lo dije": 3.0
-      "confirmo": 2.1
-      "literal": 1.8
-      "en serio": 2.6
-      "de verdad": 2.4
+    # =================================================
+    # === AMPLIFICADORES Y FRASES COMUNES ===
+    # =================================================
+    "cuidado": 2.2
+    "mira": 1.7
+    "atento": 2.3
+    "ahora": 2.5
+    "ese": 1.6
+    "esa": 1.6
+    "con todo": 3.1
+    "sin miedo": 3.3
+    "a ver": 1.9
+    "qué rico": 2.7
+    "qué abuso": 3.6
+    "qué locura": 3.9
+    "qué bestia": 3.8
+    "es un dios": 4.1
+    "no lo vi": 2.4
+    "por un pelo": 3.7
+    "casi": 3.2
+    "lo sabía": 2.9
+    "te lo dije": 3.0
+    "confirmo": 2.1
+    "literal": 1.8
+    "en serio": 2.6
+    "de verdad": 2.4
 
-      # =================================================
-      # === CONTEXTUAL (PESO MÁS BAJO) ===
-      # =================================================
-      "pe": 0.8
-      "pues": 0.7
-      "ya": 0.9
-      "bro": 1.2
-      "man": 1.1
-      "papi": 1.8
-      "rey": 1.7
-      "capo": 2.1
-      "crack": 2.3
-      "máquina": 2.5
-      "figura": 2.2
+    # =================================================
+    # === CONTEXTUAL (PESO MÁS BAJO) ===
+    # =================================================
+    "pe": 0.8
+    "pues": 0.7
+    "ya": 0.9
+    "bro": 1.2
+    "man": 1.1
+    "papi": 1.8
+    "rey": 1.7
+    "capo": 2.1
+    "crack": 2.3
+    "máquina": 2.5
+    "figura": 2.2
 
-      # =================================================
-      # === OTRAS FRASES DE REACCIÓN ===
-      # =================================================
-      "qué hablas": 2.7
-      "estás loco": 3.1
-      "qué fue eso": 3.8
-      "me asusté": 3.3
-      "qué miedo": 3.2
-      "no aguanto": 2.9
-      "me rindo": 2.4
-      "es bait": 2.6
-      "es joda": 2.5 # (es broma)
-      "mentira": 3.4
-      "es real": 3.1
-      "lo grabaron": 3.6
-      "esto es épico": 4.3
-      "histórico": 4.1
-      "para la historia": 4.2
-      "qué tal raza": 3.0
-      "qué hdp": 3.9
-      "qué carajo": 3.8
-      "anda a la": 3.5
-      "calla": 2.7
-      "silencio": 2.5
-      "shh": 2.3
-      "agárralo": 2.8
-      "cúbreme": 2.6
-      "voy": 2.1
-      "entro": 2.4
-      "sal": 2.0
-      "corre": 2.9
-      "salta": 2.2
-      "dispara": 3.0
-      "ahí está": 2.7
-      "lo veo": 2.8
-      "lo tengo": 3.1
-      "muerto": 2.9
-      "uno menos": 3.3
-      "dos menos": 3.8
-      "tres menos": 4.2
-      "cuatro menos": 4.6
-      "cinco menos": 5.0 # (ace)
-      "me bajé a": 3.5
-      "se murió": 2.8
-      "lo curas": 2.1
-      "me curas": 2.3
-      "necesito ayuda": 2.6
-      "ayúdame": 2.7
-      "gracias": 1.0
-      "de nada": 0.9
-      "gente": 0.9
-      "por favor": 1.1
-      "perdón": 1.5
-      "lo siento": 1.6
-      "buena suerte": 1.4
-      "felicidades": 2.0
-      "bien jugado": 2.2
-      "qué pena": 2.1
-      "qué triste": 1.9
-      "qué emoción": 3.6
-      "qué alegría": 3.4
-      "qué felicidad": 3.5
+    # =================================================
+    # === OTRAS FRASES DE REACCIÓN ===
+    # =================================================
+    "qué hablas": 2.7
+    "estás loco": 3.1
+    "qué fue eso": 3.8
+    "me asusté": 3.3
+    "qué miedo": 3.2
+    "no aguanto": 2.9
+    "me rindo": 2.4
+    "es bait": 2.6
+    "es joda": 2.5 # (es broma)
+    "mentira": 3.4
+    "es real": 3.1
+    "lo grabaron": 3.6
+    "esto es épico": 4.3
+    "histórico": 4.1
+    "para la historia": 4.2
+    "qué tal raza": 3.0
+    "qué hdp": 3.9
+    "qué carajo": 3.8
+    "anda a la": 3.5
+    "calla": 2.7
+    "silencio": 2.5
+    "shh": 2.3
+    "agárralo": 2.8
+    "cúbreme": 2.6
+    "voy": 2.1
+    "entro": 2.4
+    "sal": 2.0
+    "corre": 2.9
+    "salta": 2.2
+    "dispara": 3.0
+    "ahí está": 2.7
+    "lo veo": 2.8
+    "lo tengo": 3.1
+    "muerto": 2.9
+    "uno menos": 3.3
+    "dos menos": 3.8
+    "tres menos": 4.2
+    "cuatro menos": 4.6
+    "cinco menos": 5.0 # (ace)
+    "me bajé a": 3.5
+    "se murió": 2.8
+    "lo curas": 2.1
+    "me curas": 2.3
+    "necesito ayuda": 2.6
+    "ayúdame": 2.7
+    "gracias": 1.0
+    "de nada": 0.9
+    "gente": 0.9
+    "por favor": 1.1
+    "perdón": 1.5
+    "lo siento": 1.6
+    "buena suerte": 1.4
+    "felicidades": 2.0
+    "bien jugado": 2.2
+    "qué pena": 2.1
+    "qué triste": 1.9
+    "qué emoción": 3.6
+    "qué alegría": 3.4
+    "qué felicidad": 3.5
+
+# ========================================================================
+# === Palabras clave específicas por streamer (Jergas) y su "peso". ===
+# ========================================================================
+streamer_keywords:
+  mattkeelan:
+    calavera: 4.8
+    cocomelon: 4.5
+    calabaza: 4.5
+    mattfiosas: 4.0
+    euromattfiosas: 4.2
+    "lower pepa": 4.5 # Usar comillas si tiene espacios
+  marinagold:
+    goldie: 4.0
+    brillo: 4.2
+    joya: 4.5
+    marinada: 4.0
+    "top gold": 4.8
+    escenario: 3.8
+  milenkanolasco:
+    milys: 4.0
+    "nola power": 4.5
+    "momentazo mila": 4.8
+    "risas nolasco": 4.2
+    "stream vibe": 3.8
+    "game on!": 4.0
+  zullyy_cs:
+    "zullyy headshot": 4.8
+    "clutch zully": 5.0
+    "nade perfecta": 4.5
+    defuse: 4.2
+    "ronda épica": 4.8
+    "no scope": 4.5
+  elpadredomingooficiall:
+    amén: 4.0
+    bendición: 4.2
+    "sermón gaming": 3.8
+    "fé en el chat": 4.0
+    "divina jugada": 4.8
+    mandamiento: 3.5
+  francovidalalcalde:
+    "alcalde play": 4.5
+    "el veredicto": 4.2
+    "sesión épica": 4.8
+    "la ley": 4.0
+    "franco hit": 4.0
+    gabinete: 3.5
+  sachauzumaki:
+    "jutsu!": 4.5
+    "sharingan on": 4.8
+    rasengan: 5.0
+    "aldea oculta": 3.8
+    "modo sabio": 4.5
+    "ninja play": 4.2
+  robertoartigass:
+    "arte puro": 4.5
+    "maestro artigas": 4.8
+    pincelada: 4.0
+    "la obra": 4.2
+    galería: 3.5
+    "dibujando victoria": 4.0
+  luisormenoa27:
+    luisazo: 4.5
+    "momentazo ormeno": 4.8
+    "número 27": 3.8
+    "conexión 27": 4.0
+    "el capitán": 4.2
+    "playmaker luis": 4.5
 
 transcription:
   # Modelos: tiny, base, small, medium, large-v2, distil-large-v2
@@ -288,9 +356,22 @@ transcription:
 
 rendering:
   # Ruta al logo que se agregará a los videos. Dejar en blanco para no usar.
-  logo_path: "./assets/logo.png"
+  # logo_path: "./assets/logo.png"
   # Estilo de subtítulos para quemar en el video (formato ASS)
   subtitle_style: "FontName=Arial,FontSize=12,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=60"
+
+  # CONFIGURACIÓN DEL VIDEO PRINCIPAL (FOREGROUND)
+  # Factor de zoom para el video principal.
+  # > 1.0 hará zoom (lo hará más grande, recortando los bordes).
+  # < 1.0 lo hará más pequeño (mostrando más del fondo desenfocado).
+  # Ejemplo: 1.0 para un 'fit' completo de la altura (con posible recorte lateral para 16:9).
+  #          0.9 para reducir el zoom un 10%.
+  #          1.2 para aumentar el zoom un 20%.
+  fg_zoom_factor: 0.5 # <--- ¡Ajusta este valor! Un valor como 0.9 o 0.95 podría ser lo que buscas.
+  
+  # Posicionamiento del video principal (solo afecta si no ocupa toda la pantalla)
+  fg_offset_x: "center" # 'center' o un valor numérico (ej. 100 para desplazar a la derecha)
+  fg_offset_y: "center" # 'center' o un valor numérico (ej. -50 para desplazar hacia arriba)
 
 publishing:
   # Plantilla para la descripción del video en TikTok

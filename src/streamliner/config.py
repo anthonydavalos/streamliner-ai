@@ -1,20 +1,18 @@
 # src/streamliner/config.py
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field  # Asegúrate de que 'field' esté importado
 from pathlib import Path
+from typing import Union, Literal  # <--- Importa esto para los tipos de fg_offset_x/y
 
 import yaml
 from dotenv import load_dotenv
 from loguru import logger
 
 # Cargar las variables de entorno desde el archivo .env
-# Esto es lo primero que hacemos para que las variables estén disponibles
 load_dotenv()
 
 # --- Definición de Estructuras de Datos (Dataclasses) ---
-# Usamos dataclasses para tener una estructura clara y autocompletado en el código.
-# Es una forma moderna y limpia de crear clases que principalmente guardan datos.
 
 
 @dataclass
@@ -24,8 +22,7 @@ class TikTokCredentials:
     access_token: str | None = None
     refresh_token: str | None = None
     open_id: str | None = None
-    # --- CAMBIO AQUÍ: Añadimos el entorno ---
-    environment: str = "production"  # Por defecto, será producción
+    environment: str = "production"
 
 
 @dataclass
@@ -35,7 +32,7 @@ class StorageConfig:
     aws_secret_access_key: str | None = None
     aws_s3_bucket_name: str | None = None
     aws_s3_region: str | None = None
-    aws_s3_endpoint_url: str | None = None  # Clave para R2
+    aws_s3_endpoint_url: str | None = None
 
 
 @dataclass
@@ -55,7 +52,6 @@ class ScoringConfig:
     rms_weight: float
     keyword_weight: float
     scene_change_boost: float
-    keywords: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -64,7 +60,9 @@ class DetectionConfig:
     hype_score_threshold: float
     rms_peak_threshold: float
     scoring: ScoringConfig
-    max_clips_per_vod: int = 3  # Añadimos el nuevo campo con un valor por defecto
+    max_clips_per_vod: int = 3
+    keywords: dict[str, float] = field(default_factory=dict)
+    streamer_keywords: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 @dataclass
@@ -78,6 +76,11 @@ class TranscriptionConfig:
 class RenderingConfig:
     logo_path: str | None = None
     subtitle_style: str = ""
+    # --- ¡AÑADE ESTOS CAMPOS AQUÍ! ---
+    fg_zoom_factor: float = 1.0  # Valor por defecto
+    fg_offset_x: Union[Literal["center"], int] = "center"  # Valor por defecto
+    fg_offset_y: Union[Literal["center"], int] = "center"  # Valor por defecto
+    # -----------------------------------
 
 
 @dataclass
@@ -86,15 +89,10 @@ class PublishingConfig:
     upload_strategy: str
 
 
-# --- INICIO DE LA CORRECCIÓN ---
-# 1. Creamos una nueva clase para la configuración de tiempo real
 @dataclass
 class RealTimeProcessingConfig:
     chunk_duration_seconds: int = 30
     chunk_storage_path: str = "./data/chunks"
-
-
-# --- Clase Principal de Configuración ---
 
 
 @dataclass
@@ -112,13 +110,9 @@ class AppConfig:
     transcription: TranscriptionConfig
     rendering: RenderingConfig
     publishing: PublishingConfig
-    # 2. Añadimos el nuevo campo a la configuración principal
     real_time_processing: RealTimeProcessingConfig
     log_level: str = "INFO"
     log_json: bool = False
-
-
-# --- FIN DE LA CORRECCIÓN ---
 
 
 def load_config() -> AppConfig:
@@ -128,7 +122,6 @@ def load_config() -> AppConfig:
     """
     logger.info("Cargando configuración...")
 
-    # Cargar el archivo de configuración principal (YAML)
     config_path = Path("config.yaml")
     if not config_path.exists():
         raise FileNotFoundError(
@@ -138,14 +131,12 @@ def load_config() -> AppConfig:
     with open(config_path, "r", encoding="utf-8") as f:
         yaml_config = yaml.safe_load(f)
 
-    # --- Preparación de las configuraciones anidadas (Aquí está la corrección) ---
-    # Extraemos las secciones del YAML antes de construir el objeto final.
     detection_yaml = yaml_config.get("detection", {})
-    scoring_yaml = detection_yaml.pop(
-        "scoring", {}
-    )  # Extraemos y eliminamos 'scoring' de 'detection_yaml'
+    scoring_yaml = detection_yaml.pop("scoring", {})
 
-    # --- Construcción del objeto de configuración final ---
+    general_keywords_data = detection_yaml.pop("keywords", {})
+    streamer_keywords_data = detection_yaml.pop("streamer_keywords", {})
+
     storage_type = os.getenv("STORAGE_TYPE", "local")
 
     config = AppConfig(
@@ -169,23 +160,24 @@ def load_config() -> AppConfig:
                 access_token=os.getenv("TIKTOK_ACCESS_TOKEN"),
                 refresh_token=os.getenv("TIKTOK_REFRESH_TOKEN"),
                 open_id=os.getenv("TIKTOK_OPEN_ID"),
-                # --- CAMBIO AQUÍ: Leemos la variable de entorno ---
                 environment=os.getenv("TIKTOK_ENVIRONMENT", "production"),
             )
         },
         monitoring=MonitoringConfig(**yaml_config.get("monitoring", {})),
         downloader=DownloaderConfig(**yaml_config.get("downloader", {})),
-        # Ahora usamos nuestras variables ya preparadas
         detection=DetectionConfig(
-            **detection_yaml,  # Pasamos los argumentos de 'detection' (ya sin 'scoring')
-            scoring=ScoringConfig(
-                **scoring_yaml
-            ),  # Pasamos el 'scoring' construido por separado
+            **detection_yaml,
+            keywords=general_keywords_data,
+            streamer_keywords=streamer_keywords_data,
+            scoring=ScoringConfig(**scoring_yaml),
         ),
         transcription=TranscriptionConfig(**yaml_config.get("transcription", {})),
+        # --- NO NECESITAS MODIFICAR ESTA LÍNEA ---
+        # rendering=RenderingConfig(**yaml_config.get("rendering", {})),
+        # Como los campos ya están definidos en RenderingConfig, dataclass los acepta directamente.
         rendering=RenderingConfig(**yaml_config.get("rendering", {})),
+        # --- FIN DE LA ACLARACIÓN ---
         publishing=PublishingConfig(**yaml_config.get("publishing", {})),
-        # 3. Le decimos cómo leer la nueva sección del YAML
         real_time_processing=RealTimeProcessingConfig(
             **yaml_config.get("real_time_processing", {})
         ),

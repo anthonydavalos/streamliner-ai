@@ -52,6 +52,49 @@ El sistema opera como un pipeline estable que utiliza la autenticación oficial 
 
 ## 🚀 Guía de Inicio Rápido
 
+Sigue estos pasos para poner en marcha Streamliner AI en tu sistema.
+
+### 1. Requisitos Previos (¡Importante!)
+
+Antes de instalar las dependencias de Python, asegúrate de tener lo siguiente:
+
+* **Python 3.10 o superior** (descárgalo de [python.org](https://www.python.org/downloads/)).
+* **FFmpeg (¡CRÍTICO!)**: FFmpeg es esencial para el procesamiento de audio y video (extracción, corte, renderizado). **Sin él, la aplicación no funcionará.**
+
+    **Instalación de FFmpeg:**
+
+    * **Windows:**
+        1.  Ve a [ffmpeg.org/download.html](https://ffmpeg.org/download.html) y descarga una de las *builds* recomendadas (ej. `gpl.zip` de `gyan.dev`).
+        2.  Descomprime el archivo ZIP en una ubicación fácil de recordar (ej. `C:\ffmpeg`).
+        3.  **¡Añade la carpeta `bin` de FFmpeg a tu variable de entorno `PATH` de Windows!** (ej. `C:\ffmpeg\bin`).
+            * Busca "Editar las variables de entorno del sistema" en el menú de inicio.
+            * Haz clic en "Variables de entorno...".
+            * En "Variables del sistema", busca `Path`, selecciona "Editar".
+            * Haz clic en "Nuevo" y añade la ruta completa a la carpeta `bin` (ej. `C:\ffmpeg\bin`).
+            * Cierra y vuelve a abrir tu terminal (CMD/PowerShell) para que los cambios surtan efecto.
+        4.  Verifica la instalación abriendo una **nueva terminal** y escribiendo `ffmpeg -version`.
+
+    * **macOS (usando [Homebrew](https://brew.sh/index_es)):**
+        ```bash
+        brew install ffmpeg
+        ```
+
+    * **Linux (ej. Debian/Ubuntu):**
+        ```bash
+        sudo apt update
+        sudo apt install ffmpeg
+        ```
+
+    * **Verificación (cualquier SO):** Abre una **nueva terminal** y ejecuta:
+        ```bash
+        ffmpeg -version
+        ```
+        Deberías ver información sobre la versión de FFmpeg instalada. Si ves un error como "command not found", algo salió mal con la instalación o la configuración del PATH.
+
+### 2. Configuración del Entorno de Desarrollo
+
+Clona el repositorio y configura tu entorno virtual:
+
 ```bash
 # 1. Clonar el repositorio
 git clone https://github.com/tu-usuario/streamliner-ai.git
