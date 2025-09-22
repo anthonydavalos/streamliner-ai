@@ -10,13 +10,13 @@ from streamliner.cutter import VideoCutter
 
 
 @pytest.mark.asyncio
-async def test_cut_clip_success():
+async def test_cut_clip_success(tmp_path: Path):
     """
     Verifica que VideoCutter llama a ffmpeg con los argumentos correctos
     para la recodificación del clip.
     """
     # 1. Preparación
-    mock_clips_output_dir = Path("/mock/clips_output")
+    mock_clips_output_dir = tmp_path / "clips_output"
     mock_clips_output_dir.mkdir(
         parents=True, exist_ok=True
     )  # Asegurarse de que el directorio existe

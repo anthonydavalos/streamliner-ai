@@ -83,7 +83,7 @@ class TranscriptionResult:
 
 
 @pytest.mark.asyncio
-async def test_find_highlights_scoring_logic():
+async def test_find_highlights_scoring_logic(tmp_path: Path):
     """
     Verifica que la lógica de scoring del detector funciona correctamente.
     """
@@ -96,6 +96,12 @@ async def test_find_highlights_scoring_logic():
 
     # Crear los directorios mock necesarios para Path.mkdir() si tu código real los crea
     # o si son pasados a Transcriber o HighlightDetector
+    # Redirigir los paths mock a un directorio temporal seguro
+    mock_app_config.paths.base_dir = tmp_path / "mock_test_data"
+    mock_app_config.paths.data_dir = mock_app_config.paths.base_dir / "data"
+    mock_app_config.paths.chunks_dir = mock_app_config.paths.data_dir / "chunks"
+    mock_transcription_config.data_dir = mock_app_config.paths.base_dir / "transcriber"
+
     mock_app_config.paths.base_dir.mkdir(parents=True, exist_ok=True)
     mock_app_config.paths.data_dir.mkdir(parents=True, exist_ok=True)
     mock_app_config.paths.chunks_dir.mkdir(parents=True, exist_ok=True)
