@@ -14,7 +14,7 @@ class S3Storage(BaseStorage):
 
     def __init__(self, config: AppConfig):
         self.config = config.storage
-        self.local_temp_dir = Path(config.downloader.local_storage_path) / "temp"
+        self.local_temp_dir = config.paths.local_storage_base_dir / "temp"
         self.local_temp_dir.mkdir(parents=True, exist_ok=True)
 
         session = get_session()
@@ -58,7 +58,8 @@ class S3Storage(BaseStorage):
                 )
                 async with response["Body"] as stream:
                     with open(local_path, "wb") as f:
-                        f.write(await stream.read())
+                        async for chunk in stream.iter_chunks():
+                            f.write(chunk)
             logger.success("Descarga de S3 completada.")
             return True
         except Exception as e:

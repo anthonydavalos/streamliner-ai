@@ -1,136 +1,144 @@
 # src/streamliner/downloader.py
 
 import asyncio
-from datetime import datetime
+import subprocess
+import json
 from pathlib import Path
+from datetime import datetime
 from loguru import logger
 
 from .config import AppConfig
-from .storage.base import BaseStorage
-from .worker import ProcessingWorker
 
 
-class Downloader:
-    """
-    Gestiona la descarga en chunks y orquesta el trabajador de procesamiento en paralelo.
-    Esta versión incluye la corrección para la tubería (pipe) en Windows.
-    """
-
-    def __init__(self, config: AppConfig, storage: BaseStorage):
+class VideoDownloader:
+    def __init__(self, config: AppConfig):
         self.config = config
-        self.storage = storage
+        # CAMBIO SUGERIDO AQUÍ
+        self.local_storage_base_path = config.paths.local_storage_base_dir
 
-    async def download_stream(self, streamer: str):
+        self.preferred_stream_quality = "best"
+
+        self.local_storage_base_path.mkdir(parents=True, exist_ok=True)
+        logger.info(
+            f"VideoDownloader inicializado. Los VODs se guardarán en: {self.local_storage_base_path}"
+        )
+
+    async def download_vod(self, url: str, streamer_name: str) -> Path:
         """
-        Lanza el productor (streamlink -> ffmpeg) y el consumidor (ProcessingWorker)
-        para procesar un stream en vivo en tiempo real.
+        Descarga un VOD desde la URL dada usando streamlink y lo guarda localmente.
+        Retorna la ruta al archivo descargado.
         """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        chunk_dir_name = f"{streamer}_stream_{timestamp}"
-        chunk_path = (
-            Path(self.config.real_time_processing.chunk_storage_path) / chunk_dir_name
-        )
-        chunk_path.mkdir(parents=True, exist_ok=True)
-
-        output_pattern = chunk_path / "chunk_%05d.ts"
-
-        logger.info(f"Iniciando descarga en chunks para '{streamer}' en {chunk_path}")
-
-        streamlink_args = [
-            "streamlink",
-            "--stdout",
-            f"https://kick.com/{streamer}",
-            self.config.downloader.output_quality,
-        ]
-        ffmpeg_args = [
-            "ffmpeg",
-            "-i",
-            "-",
-            "-c",
-            "copy",
-            "-f",
-            "segment",
-            "-segment_time",
-            str(self.config.real_time_processing.chunk_duration_seconds),
-            "-reset_timestamps",
-            "1",
-            "-strftime",
-            "0",
-            str(output_pattern),
-        ]
-
-        # --- ORQUESTACIÓN DEL PRODUCTOR Y EL CONSUMIDOR CON CORRECCIÓN PARA WINDOWS ---
-
-        # 1. Creamos nuestro trabajador de procesamiento
-        worker = ProcessingWorker(self.config, streamer, chunk_path)
-        worker_task = asyncio.create_task(worker.start())
-
-        # 2. Iniciamos los procesos de descarga
-        streamlink_proc = await asyncio.create_subprocess_exec(
-            *streamlink_args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        ffmpeg_proc = await asyncio.create_subprocess_exec(
-            *ffmpeg_args,
-            stdin=asyncio.subprocess.PIPE,  # Lo creamos como tubería para escribir manualmente
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        logger.success(
-            f"Productor (ffmpeg) y Consumidor (worker) iniciados para '{streamer}'."
-        )
-
-        # 3. Creamos las tareas de soporte
-        async def pipe_data(stream_in, stream_out):
-            """Función "puente" que lee de streamlink y escribe en ffmpeg."""
-            while True:
-                chunk = await stream_in.read(8192)  # Lee en trozos de 8KB
-                if not chunk:
-                    break
-                try:
-                    stream_out.write(chunk)
-                    await stream_out.drain()
-                except (BrokenPipeError, ConnectionResetError):
-                    logger.warning(
-                        "La tubería de ffmpeg se cerró. Probablemente el stream terminó."
-                    )
-                    break
-            stream_out.close()
-
-        async def log_stderr(process, name):
-            async for line in process.stderr:
-                logger.debug(f"[{name}-stderr] {line.decode(errors='ignore').strip()}")
-
-        # 4. Creamos una tarea para esperar a que la descarga finalice
-        async def wait_for_download_end():
-            # Esperamos a que el proceso de streamlink termine (señal de que el stream acabó)
-            await streamlink_proc.wait()
-            # Le damos un segundo extra a la tubería para procesar los últimos datos
-            await asyncio.sleep(1)
-            # Forzamos la finalización de ffmpeg si no ha terminado solo
-            if ffmpeg_proc.returncode is None:
-                ffmpeg_proc.terminate()
-            await ffmpeg_proc.wait()
-
-        # 5. Ejecutamos todo en paralelo y esperamos a que la descarga termine
-        download_task = asyncio.create_task(wait_for_download_end())
-
-        await asyncio.gather(
-            log_stderr(streamlink_proc, "streamlink"),
-            log_stderr(ffmpeg_proc, "ffmpeg"),
-            pipe_data(streamlink_proc.stdout, ffmpeg_proc.stdin),
-            download_task,
-        )
+        # Crear un subdirectorio para el streamer dentro de local_storage_path
+        streamer_vod_dir = self.local_storage_path / streamer_name
+        streamer_vod_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(
-            f"La descarga para '{streamer}' ha finalizado. Deteniendo al trabajador..."
+            f"Iniciando descarga de VOD desde: {url} para {streamer_name} usando streamlink."
         )
 
-        # 6. Cuando la descarga termina, le decimos al trabajador que se detenga
-        worker.stop()
-        await worker_task
+        try:
+            # Primero, usar streamlink para obtener la URL directa del stream de la mejor calidad.
+            # streamlink --json <url> <quality>
+            stream_info_command = [
+                "streamlink",
+                "--json",
+                url,
+                self.preferred_stream_quality,
+            ]
 
-        logger.success(f"Procesamiento en tiempo real para '{streamer}' completado.")
-        return chunk_path
+            logger.debug(
+                f"Ejecutando streamlink para obtener URL: {' '.join(stream_info_command)}"
+            )
+            process_info = await asyncio.create_subprocess_exec(
+                *stream_info_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout_info, stderr_info = await process_info.communicate()
+
+            if process_info.returncode != 0:
+                error_output = stderr_info.decode().strip()
+                logger.error(
+                    f"Error al obtener información del VOD con streamlink para {url}: {error_output}"
+                )
+                raise RuntimeError(f"Streamlink info failed: {error_output}")
+
+            stream_data = json.loads(stdout_info.decode().strip())
+
+            # streamlink --json devuelve un diccionario de streams disponibles o None
+            # Si hay streams, 'best' debería estar presente.
+            if not stream_data or not stream_data.get("streams"):
+                logger.error(f"Streamlink no encontró streams válidos para {url}")
+                raise RuntimeError(f"No valid streams found for {url} via Streamlink.")
+
+            best_stream_obj = stream_data["streams"].get(self.preferred_stream_quality)
+            if not best_stream_obj or not best_stream_obj.get("url"):
+                logger.error(
+                    f"No se pudo obtener la URL de la calidad '{self.preferred_stream_quality}' para {url}"
+                )
+                raise RuntimeError(
+                    f"Could not get stream URL for preferred quality '{self.preferred_stream_quality}'."
+                )
+
+            actual_stream_url = best_stream_obj["url"]
+            logger.info(
+                f"Obtenida URL directa del VOD: {actual_stream_url[:100]}..."
+            )  # Log parcial de URL
+
+            # Generar un nombre de archivo único basado en el título del VOD si es posible,
+            # o un timestamp si el título no está disponible.
+            # streamlink --json no siempre proporciona un título de forma conveniente para VODs genéricos.
+            # Para simplificar, usaremos un nombre basado en el streamer y un timestamp.
+            # Si se requiere el título real del video, necesitaríamos una lógica más compleja
+            # o una herramienta como yt-dlp para extraer metadatos sin descargar.
+            # Por ahora, un timestamp es robusto.
+
+            # Crear un nombre de archivo seguro
+            filename = f"{streamer_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+            output_path = streamer_vod_dir / filename
+
+            logger.info(f"Descargando VOD a: {output_path}")
+
+            # Ahora, usar ffmpeg para descargar el VOD desde la URL directa
+            # -i <url>: URL de entrada
+            # -c copy: copiar streams de video y audio sin recodificar (más rápido)
+            # -bsf:a aac_adtstoasc: filtro para corregir el formato de audio AAC si es necesario (común en HLS)
+            # -movflags +faststart: para que el archivo sea reproducible antes de la descarga completa
+            ffmpeg_command = [
+                "ffmpeg",
+                "-y",  # Sobrescribir sin preguntar
+                "-i",
+                actual_stream_url,
+                "-c",
+                "copy",
+                "-bsf:a",
+                "aac_adtstoasc",  # Necesario para streams HLS que usan AAC
+                "-movflags",
+                "+faststart",
+                str(output_path),
+            ]
+
+            logger.debug(
+                f"Ejecutando ffmpeg para descargar: {' '.join(ffmpeg_command)}"
+            )
+            process_download = await asyncio.create_subprocess_exec(
+                *ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout_download, stderr_download = await process_download.communicate()
+
+            if process_download.returncode != 0:
+                error_output = stderr_download.decode().strip()
+                logger.error(
+                    f"Error al descargar el VOD con ffmpeg {url}: {error_output}"
+                )
+                raise RuntimeError(f"FFmpeg download failed: {error_output}")
+            else:
+                logger.success(f"VOD descargado exitosamente: {output_path}")
+                return output_path
+
+        except FileNotFoundError:
+            logger.error(
+                "Comando 'streamlink' o 'ffmpeg' no encontrado. Asegúrate de que estén instalados y en tu PATH."
+            )
+            raise
+        except Exception as e:
+            logger.error(f"Error general al descargar el VOD {url}: {e}", exc_info=True)
+            raise

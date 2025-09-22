@@ -16,7 +16,7 @@ Este proyecto utiliza la **API oficial de Kick**, autenticándose vía **OAuth2 
 
 1.  [✨ Características Principales](#-características-principales)
 2.  [⚙️ Arquitectura del Sistema](#️-arquitectura-del-sistema)
-3.  [🚀 Guía de Inicio Rápido](uía-de-inicio-rápido)
+3.  [🚀 Guía de Inicio Rápido](#-guía-de-inicio-rápido)
 4.  [🔧 Instalación y Configuración Detallada](#-instalación-y-configuración-detallada)
       - [Prerrequisitos](#prerrequisitos)
       - [Pasos de Instalación](#pasos-de-instalación)
@@ -119,7 +119,7 @@ cp config.yaml.example config.yaml
 # (Edita .env y config.yaml con tus datos)
 
 # 5. Ejecutar una prueba con un video local
-python -m src.streamliner.cli process --file "ruta/a/tu/video.mp4" --streamer "test" --dry-run
+python -m src.streamliner.cli process "data/video.mp4" --streamer "test" --dry-run
 
 # 6. Iniciar el modo de monitorización
 python -m src.streamliner.cli monitor

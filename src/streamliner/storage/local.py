@@ -13,9 +13,9 @@ class LocalStorage(BaseStorage):
     """
 
     def __init__(self, config: AppConfig):
-        self.base_path = Path(config.downloader.local_storage_path)
+        self.base_path = config.paths.clips_dir
         self.base_path.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Usando almacenamiento local en: {self.base_path.resolve()}")
+        logger.info(f"Usando almacenamiento local en: {self.base_path}")
 
     async def upload(self, local_path: Path, remote_filename: str) -> str:
         """

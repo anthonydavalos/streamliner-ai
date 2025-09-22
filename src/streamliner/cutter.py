@@ -1,77 +1,58 @@
 # src/streamliner/cutter.py
 
 import asyncio
+import subprocess
 from pathlib import Path
 from loguru import logger
 
 
 class VideoCutter:
-    """
-    Clase responsable de cortar segmentos de video usando ffmpeg.
-    """
+    def __init__(self, clips_output_dir: Path):  # Aceptar AppConfig completa
+        self.clips_dir = clips_output_dir  # <-- ¡CORREGIDO!
+        self.clips_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(
+            f"VideoCutter inicializado. Los clips se guardarán en: {self.clips_dir}"
+        )
 
     async def cut_clip(
-        self,
-        input_path: str | Path,
-        output_path: str | Path,
-        start_seconds: float,
-        end_seconds: float,
-    ) -> str | None:
+        self, input_path: Path, start_time: float, end_time: float, output_filename: str
+    ) -> Path:
         """
-        Corta un clip desde 'input_path' usando los timestamps especificados.
-
-        Args:
-            input_path: Ruta al video de origen.
-            output_path: Ruta donde se guardará el clip cortado.
-            start_seconds: Tiempo de inicio del corte en segundos.
-            end_seconds: Tiempo de finalización del corte en segundos.
-
-        Returns:
-            La ruta al archivo de salida si el corte fue exitoso, de lo contrario None.
+        Corta un segmento de video usando ffmpeg.
         """
+        output_path = self.clips_dir / output_filename
+        duration = end_time - start_time
+
         logger.info(
-            f"Cortando clip desde {start_seconds:.2f}s hasta {end_seconds:.2f}s..."
+            f"Cortando video desde {input_path} de {start_time:.2f} a {end_time:.2f} "
+            f"({duration:.2f}s)"  # Dividido para cumplir con la longitud de línea (si aplica)
         )
-        logger.info(f"Fuente: {input_path}")
-        logger.info(f"Destino: {output_path}")
+        logger.debug(f"Guardando clip cortado en: {output_path}")
 
-        # Asegurarse de que el directorio de salida exista
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-
-        # Comando de ffmpeg para cortar el video.
-        # -ss: Seek (buscar) hasta la posición de inicio. Ponerlo antes de -i es más rápido.
-        # -to: Duración hasta la posición final.
-        # -c copy: Copia los códecs de audio y video sin recodificar. Es ultra rápido.
-        # -y: Sobrescribe el archivo de salida si ya existe.
-        args = [
+        command = [
             "ffmpeg",
-            "-y",
-            "-ss",
-            str(start_seconds),
+            "-y",  # Sobrescribir archivos de salida sin pedir confirmación
             "-i",
             str(input_path),
-            "-to",
-            str(end_seconds),
-            # Al no especificar "-c copy" ni "-map", ffmpeg recodificará
-            # usando sus valores por defecto, creando un archivo 100% robusto.
+            "-ss",
+            str(start_time),
+            "-t",
+            str(duration),
+            "-c:v",
+            "copy",  # Copiar stream de video sin recodificar (más rápido)
+            "-c:a",
+            "copy",  # Copiar stream de audio sin recodificar (más rápido)
             str(output_path),
         ]
 
-        logger.debug(f"Ejecutando comando ffmpeg: {' '.join(args)}")
-
         process = await asyncio.create_subprocess_exec(
-            *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            *command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
-
         stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
-            error_message = stderr.decode().strip()
-            logger.error(
-                f"Error al cortar el video con ffmpeg (código: {process.returncode}):"
-            )
-            logger.error(error_message)
-            return None
-
-        logger.success(f"Clip cortado exitosamente y guardado en: {output_path}")
-        return str(output_path)
+            logger.error(f"Error al cortar el video {input_path}: {stderr.decode()}")
+            raise RuntimeError(f"FFmpeg cutting failed: {stderr.decode()}")
+        else:
+            logger.success(f"Video cortado exitosamente: {output_path}")
+            return output_path

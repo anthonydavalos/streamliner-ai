@@ -5,190 +5,468 @@ from pathlib import Path
 from loguru import logger
 import os
 from collections import deque
+import shutil
+import aiofiles
+import subprocess
+import stat
 
 from .config import AppConfig
-from .detector import HighlightDetector
 from .pipeline import process_and_create_clip, _extract_audio
+from .stt import Transcriber
+from .detector import HighlightDetector
+from .publisher.tiktok import TikTokPublisher
+from .storage import get_storage
 
 
 class ProcessingWorker:
     """
-    Un trabajador asíncrono que vigila una carpeta en busca de nuevos chunks de video,
-    los analiza, los procesa y limpia los chunks antiguos de forma segura.
+    Un trabajador asíncrono que gestiona un buffer de chunks de video,
+    los analiza para detectar highlights, procesa los clips y limpia los chunks.
     """
 
-    def __init__(self, config: AppConfig, streamer: str, stream_session_dir: Path):
+    def __init__(
+        self,
+        config: AppConfig,
+        streamer: str,
+        stream_session_dir: Path,
+        dry_run: bool = False,
+    ):
         self.config = config
         self.streamer = streamer
         self.stream_session_dir = stream_session_dir
+        self.dry_run = dry_run
+
+        # --- REFACTORIZACIÓN: Inicializar componentes una sola vez ---
+        self.transcriber = Transcriber(
+            whisper_model=config.transcription.whisper_model,
+            device=config.transcription.device,
+            compute_type=config.transcription.compute_type,
+            data_dir=config.paths.transcriber_models_dir,
+        )
         self.detector = HighlightDetector(
-            config
-        )  # Esto está bien, HighlightDetector ya se inicializa con AppConfig
-        self.processed_chunks = set()
-        self.shutdown_event = asyncio.Event()
-        self.cleanup_buffer = deque(maxlen=5)
-
-    async def start(self):
-        """Inicia el ciclo de vigilancia del trabajador."""
-        logger.info(
-            f"[Worker-{self.streamer}] Iniciando. Vigilando carpeta: {self.stream_session_dir}"
+            config.detection,
+            self.transcriber,  # Pasar la instancia del transcriber
         )
-        while not self.shutdown_event.is_set():
-            try:
-                all_chunks = sorted(
-                    [p for p in self.stream_session_dir.glob("*.ts")],
-                    key=lambda p: p.name,
-                )
+        self.storage_manager = get_storage(config)
+        self.publisher = (
+            TikTokPublisher(config, self.storage_manager) if config.publishing else None
+        )
+        # -----------------------------------------------------------
 
-                new_chunks = [
-                    chunk
-                    for chunk in all_chunks
-                    if chunk.name not in self.processed_chunks
-                ]
+        self.highlight_buffer = deque(
+            maxlen=config.real_time_processing.highlight_buffer_size
+        )
 
-                if new_chunks:
-                    for chunk_path in new_chunks:
-                        if chunk_path.exists():
-                            self.cleanup_buffer.append(chunk_path)
+        # Lock para proteger el proceso de creación de clips y evitar interrupciones.
+        self.clip_processing_lock = asyncio.Lock()
 
-                        asyncio.create_task(self.process_chunk(chunk_path))
-                        self.processed_chunks.add(chunk_path.name)
-
-                        await self._cleanup_oldest_chunk()
-
-                await asyncio.sleep(5)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(
-                    f"[Worker-{self.streamer}] Error inesperado en el bucle principal: {e}"
-                )
-                await asyncio.sleep(10)
+        self.current_stream_time_offset = 0
+        # Tarea activa para evitar solapamiento de análisis
+        self._analysis_task = None  # type: asyncio.Task | None
 
         logger.info(
-            f"[Worker-{self.streamer}] Proceso de vigilancia detenido. Realizando limpieza final..."
+            f"[Worker-{self.streamer}] Inicializado. Directorio de sesión: {self.stream_session_dir}"
         )
-        await self._final_cleanup()
 
-    def stop(self):
-        """Señaliza al trabajador para que se detenga."""
-        logger.info(f"[Worker-{self.streamer}] Recibida señal de detención.")
-        self.shutdown_event.set()
+    def is_processing_clip(self) -> bool:
+        """Verifica si el worker está actualmente procesando un clip."""
+        return self.clip_processing_lock.locked()
 
-    async def _cleanup_oldest_chunk(self, chunk_path_to_exclude: Path = None):
-        """Intenta eliminar el chunk más antiguo si el buffer está lleno, excluyendo el chunk actual."""
-        if len(self.cleanup_buffer) >= self.cleanup_buffer.maxlen:
-            # Encuentra el chunk más antiguo que no sea el chunk que se está procesando actualmente
-            chunk_to_delete = None
-            for _ in range(
-                len(self.cleanup_buffer)
-            ):  # Iterar para encontrar el más antiguo elegible
-                oldest_in_buffer = self.cleanup_buffer.popleft()
-                if oldest_in_buffer != chunk_path_to_exclude:
-                    chunk_to_delete = oldest_in_buffer
-                    break
-                self.cleanup_buffer.append(
-                    oldest_in_buffer
-                )  # Si es el excluido, volverlo a poner al final
+    async def wait_until_idle(self):
+        """Espera hasta que el worker termine de procesar cualquier clip en curso."""
+        async with self.clip_processing_lock:
+            pass  # El bloque se ejecutará solo cuando el lock esté libre.
 
-            if chunk_to_delete:
-                await self._safe_delete(chunk_to_delete)
-            elif (
-                chunk_path_to_exclude
-            ):  # Si el único que queda es el excluido y el buffer está lleno
-                logger.debug(
-                    f"No se pudo limpiar el chunk más antiguo porque es el que se está procesando: {chunk_path_to_exclude.name}"
-                )
+    async def add_chunk_for_processing(self, chunk_path: Path):
+        """
+        Añade un nuevo chunk al buffer y dispara la lógica de detección de highlights.
+        Llamado desde StreamMonitor.
+        """
+        if not chunk_path.exists():
+            logger.warning(f"Chunk {chunk_path.name} no existe, omitiendo.")
+            return
 
-    async def _final_cleanup(self):
-        """Limpia todos los chunks restantes en el buffer al finalizar."""
         logger.info(
-            f"[Worker-{self.streamer}] Limpiando {len(self.cleanup_buffer)} chunks restantes..."
+            f"[Worker-{self.streamer}] Añadiendo chunk al buffer: {chunk_path.name}"
         )
-        await asyncio.sleep(2)  # Espera final para que se liberen los archivos
+        self.highlight_buffer.append(chunk_path)
 
-        # Convierte deque a lista para evitar problemas al iterar y borrar
-        for chunk_path in list(self.cleanup_buffer):
-            await self._safe_delete(chunk_path)
-
-        # Limpiamos los archivos restantes que no estaban en el buffer
-        for chunk_path in self.stream_session_dir.glob("*.ts"):
-            await self._safe_delete(chunk_path)
-
-        logger.success(
-            f"[Worker-{self.streamer}] Limpieza final de archivos completada."
+        # La lógica de offset debe considerar que el buffer no siempre se vacía por completo.
+        # Es más preciso calcular el offset del chunk actual en relación con el inicio de la grabación.
+        # Para simplificar por ahora, y asumiendo que el flujo es lineal, mantenemos este.
+        # Para una precisión absoluta, cada chunk debería tener su timestamp de inicio real.
+        self.current_stream_time_offset += (
+            self.config.real_time_processing.chunk_duration_seconds
         )
 
-    async def _safe_delete(self, chunk_path: Path):
-        """Elimina un archivo de forma segura, con un pequeño reintento."""
-        try:
-            if chunk_path.exists():
-                os.remove(chunk_path)
-                logger.debug(f"Chunk {chunk_path.name} limpiado exitosamente.")
-        except OSError as e:
-            logger.warning(
-                f"No se pudo limpiar el chunk {chunk_path.name} en el primer intento: {e}"
+        # Lanzar análisis en segundo plano solo si no hay uno activo
+        if self._analysis_task is None or self._analysis_task.done():
+            self._analysis_task = asyncio.create_task(
+                self._process_highlights_from_buffer()
             )
-            await asyncio.sleep(1)  # Espera 1 segundo y reintenta
-            try:
-                if chunk_path.exists():
-                    os.remove(chunk_path)
-                    logger.debug(
-                        f"Chunk {chunk_path.name} limpiado en el segundo intento."
-                    )
-            except OSError as e_retry:
-                logger.error(
-                    f"Fallo final al limpiar el chunk {chunk_path.name}: {e_retry}"
-                )
 
-    async def process_chunk(self, chunk_path: Path):
+    async def _process_highlights_from_buffer(self):
         """
-        Ejecuta el pipeline de detección completo en un único chunk de video.
+        Une los chunks en el buffer, extrae audio, transcribe y detecta highlights.
+        Si se detecta un highlight, lo corta y lo publica.
         """
-        logger.info(f"[Worker-{self.streamer}] Analizando chunk: {chunk_path.name}")
-        audio_chunk_path = None
+        # Acceder a min_chunks_for_detection a través de self.config.real_time_processing
+        if (
+            len(self.highlight_buffer)
+            < self.config.real_time_processing.min_chunks_for_detection
+        ):
+            logger.debug(
+                f"Pocos chunks en buffer ({len(self.highlight_buffer)}) para detección. Mínimo: {self.config.real_time_processing.min_chunks_for_detection}"
+            )
+            return
+
+        # Nombre de archivo temporal para la combinación de chunks en el buffer.
+        combined_video_path_for_detection = (
+            self.stream_session_dir / f"{self.streamer}_combined_for_detection.mp4"
+        )
+
+        success = await self._combine_chunks_for_detection(
+            combined_video_path_for_detection
+        )
+        if not success:
+            logger.error(
+                f"[Worker-{self.streamer}] Fallo al combinar chunks para detección."
+            )
+            return
+
+        logger.info(
+            f"[Worker-{self.streamer}] Chunks combinados para detección: {combined_video_path_for_detection.name}"
+        )
+
+        audio_path = None
         try:
-            # _extract_audio ya está definido en pipeline.py
-            audio_chunk_path = await _extract_audio(
-                chunk_path, self.stream_session_dir
-            )  # Asegúrate de pasar stream_session_dir para la salida del audio
+            audio_path = await _extract_audio(
+                combined_video_path_for_detection, self.stream_session_dir
+            )
 
-            # **INICIO DEL CAMBIO**
-            # Añade 'streamer_name=self.streamer' al final de la llamada a find_highlights
-            chunk_duration = self.config.real_time_processing.chunk_duration_seconds
+            combined_duration_approx = (
+                self.config.real_time_processing.chunk_duration_seconds
+                * len(self.highlight_buffer)
+            )
+
             highlights = await self.detector.find_highlights(
-                str(audio_chunk_path),
-                chunk_duration,
-                streamer_name=self.streamer,  # <--- ¡ESTE ES EL CAMBIO CLAVE!
+                audio_path,  # El detector ya tiene el transcriber
+                combined_duration_approx,
+                streamer_name=self.streamer,
+                temp_dir=self.stream_session_dir,
             )
-            # **FIN DEL CAMBIO**
 
             if highlights:
                 logger.success(
-                    f"¡HIGHLIGHTS ({len(highlights)}) ENCONTRADOS EN {chunk_path.name}!"
+                    f"¡HIGHLIGHTS ({len(highlights)}) ENCONTRADOS en el buffer del streamer {self.streamer}!"
                 )
                 best_highlight = highlights[0]
-                logger.info(
-                    f"Procediendo a crear clip para el mejor highlight (Score: {best_highlight['score']:.2f})"
+
+                # Calcular el tiempo absoluto de inicio del buffer actual.
+                # Es el offset total hasta el final del último chunk añadido, menos la duración total del buffer.
+                buffer_start_absolute_time = (
+                    self.current_stream_time_offset - combined_duration_approx
                 )
-                # Aquí podrías usar 'best_highlight' para cortar el clip con sus tiempos exactos y texto
-                # Por ahora, mantendremos la llamada a process_and_create_clip como está, asumiendo que
-                # gestiona el corte basado en la duración del chunk o los highlights detectados.
-                await process_and_create_clip(self.config, chunk_path, self.streamer)
+
+                # Estos son los tiempos ABSOLUTOS en el stream completo
+                highlight_start_abs = (
+                    buffer_start_absolute_time + best_highlight["start_time"]
+                )
+                highlight_end_abs = (
+                    buffer_start_absolute_time + best_highlight["end_time"]
+                )
+
+                logger.info(
+                    f"Procediendo a crear clip para el mejor highlight (Score: {best_highlight['score']:.2f}). "
+                    f"Tiempo ABSOLUTO en el stream: {highlight_start_abs:.2f}s - {highlight_end_abs:.2f}s. "
+                    f"Tiempos RELATIVOS al buffer: {best_highlight['start_time']:.2f}s - {best_highlight['end_time']:.2f}s"
+                )
+
+                # Adquirir el lock antes de iniciar el proceso de creación del clip
+                async with self.clip_processing_lock:
+                    await process_and_create_clip(
+                        self.config,
+                        self.transcriber,  # Pasar instancia
+                        self.publisher,  # Pasar instancia
+                        combined_video_path_for_detection,  # <-- PASAR VIDEO COMBINADO
+                        self.streamer,
+                        transcription_result=best_highlight[
+                            "transcription"
+                        ],  # <-- PASAR TRANSCRIPCIÓN
+                        buffer_start_absolute_time=buffer_start_absolute_time,  # Pasar el inicio absoluto del buffer
+                        highlight_start_abs=highlight_start_abs,  # Pasar el inicio absoluto del highlight en el stream
+                        highlight_end_abs=highlight_end_abs,  # Pasar el fin absoluto del highlight en el stream
+                        dry_run=self.dry_run,  # <--- Usar el dry_run del worker
+                        temp_dir=self.stream_session_dir,
+                    )
             else:
                 logger.info(
-                    f"No se encontraron highlights significativos en {chunk_path.name}"
+                    f"No se encontraron highlights significativos en el buffer del streamer {self.streamer}"
                 )
+
         except Exception as e:
-            logger.error(f"Fallo al procesar el chunk {chunk_path.name}: {e}")
+            # No registrar CancelledError como un error, es una interrupción normal.
+            if not isinstance(e, asyncio.CancelledError):
+                logger.error(
+                    f"[Worker-{self.streamer}] Fallo al procesar highlights del buffer: {e}",
+                    exc_info=True,
+                )
         finally:
-            # Asegúrate de limpiar el archivo de audio extraído
-            if audio_chunk_path and audio_chunk_path.exists():
-                try:
-                    os.remove(audio_chunk_path)
-                    logger.debug(f"Audio chunk {audio_chunk_path.name} limpiado.")
-                except OSError as e:
-                    logger.warning(
-                        f"No se pudo eliminar el audio chunk {audio_chunk_path.name}: {e}"
+            if audio_path and audio_path.exists():
+                await self._safe_delete(audio_path)
+            if combined_video_path_for_detection.exists():
+                await self._safe_delete(combined_video_path_for_detection)
+
+            # --- NUEVA LÓGICA DE LIMPIEZA ---
+            # Si el buffer está lleno, el chunk más antiguo ya no es necesario
+            # para la siguiente ventana de detección, así que lo eliminamos.
+            # El buffer `deque` con `maxlen` expulsa automáticamente el elemento más antiguo.
+            # Necesitamos una forma de saber cuál fue expulsado.
+            # Una forma más simple es limpiar el primer chunk si el buffer está lleno.
+            if len(self.highlight_buffer) == self.highlight_buffer.maxlen:
+                chunk_to_remove = self.highlight_buffer.popleft()
+                logger.info(
+                    f"Buffer lleno. Limpiando chunk más antiguo: {chunk_to_remove.name}"
+                )
+                await self._safe_delete(chunk_to_remove)
+            # Señalar que el análisis terminó
+            self._analysis_task = None
+
+    async def _combine_chunks_for_detection(self, output_path: Path) -> bool:
+        """
+        Une los chunks de video en el highlight_buffer en un solo archivo MP4 temporal
+        para el procesamiento de detección.
+        """
+        if not self.highlight_buffer:
+            return False
+
+        list_file_path = self.stream_session_dir / f"{self.streamer}_concat_list.txt"
+
+        # --- NUEVO LOG AQUÍ ---
+        logger.debug(
+            f"[Worker-{self.streamer}] stream_session_dir: {self.stream_session_dir.as_posix()}"
+        )
+        logger.debug(
+            f"[Worker-{self.streamer}] list_file_path original: {list_file_path.as_posix()}"
+        )
+        # ---------------------
+
+        async with aiofiles.open(list_file_path, "w") as f:
+            for chunk_path in self.highlight_buffer:
+                # Aquí usamos la ruta absoluta del chunk, escapada para FFmpeg.
+                # Path.as_posix() convierte a barras "/", que FFmpeg suele preferir incluso en Windows.
+                # También se añade 'file ' al principio para el formato de la lista.
+                # chunk_path ya es una Path, su as_posix() devuelve la ruta completa.
+
+                # --- NUEVO LOG AQUÍ (dentro del bucle) ---
+                logger.debug(
+                    f"[Worker-{self.streamer}] Chunk path en buffer: {chunk_path.as_posix()}"
+                )
+                # ----------------------------------------
+                chunk_absolute_path = chunk_path.resolve()
+                await f.write(
+                    f"file '{chunk_absolute_path.as_posix()}'\n"
+                )  # <-- Esto ya es correcto para rutas absolutas
+
+        # --- AÑADE ESTOS LOGS AQUÍ ---
+        # Leer el contenido del archivo de lista para el log
+        async with aiofiles.open(list_file_path, "r") as f:
+            list_content = await f.read()
+        logger.debug(
+            f"[Worker-{self.streamer}] Contenido de {list_file_path}:\n{list_content}"
+        )
+        # ---------------------------
+
+        command = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(
+                list_file_path.resolve().as_posix()
+            ),  # Pasar la ruta absoluta del archivo de lista
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(
+                output_path.resolve().as_posix()
+            ),  # Pasar la ruta absoluta del archivo de salida
+        ]
+
+        # --- AÑADE ESTE LOG AQUÍ ---
+        logger.debug(
+            f"[Worker-{self.streamer}] Comando FFmpeg a ejecutar: {' '.join(command)}"
+        )
+        # --------------------------
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                logger.error(
+                    f"FFmpeg error al concatenar chunks: {stderr.decode().strip()}"
+                )
+                # --- AÑADE ESTE LOG PARA VER EL STDERR COMPLETO DE FFmpeg ---
+                logger.debug(f"FFmpeg STDOUT:\n{stdout.decode().strip()}")
+                logger.debug(f"FFmpeg STDERR:\n{stderr.decode().strip()}")
+                # -----------------------------------------------------------
+                return False
+            logger.debug(f"Chunks concatenados exitosamente a {output_path.name}")
+            return True
+        except Exception as e:
+            logger.error(
+                f"Excepción al concatenar chunks con FFmpeg: {e}", exc_info=True
+            )
+            return False
+        finally:
+            if list_file_path.exists():
+                await self._safe_delete(list_file_path)
+
+    async def flush_remaining_chunks(self):
+        """
+        Procesa los chunks que quedan en el buffer antes de que el worker se apague.
+        No elimina los archivos, solo asegura que se procesen.
+        """
+        logger.info(
+            f"[Worker-{self.streamer}] Procesando {len(self.highlight_buffer)} chunks restantes antes de terminar."
+        )
+
+        if self.highlight_buffer:
+            # Ejecutar una última vez el procesamiento para los chunks que quedaron
+            await self._process_highlights_from_buffer()
+
+        # Vaciar el buffer en memoria
+        self.highlight_buffer.clear()
+
+        logger.success(
+            f"[Worker-{self.streamer}] Procesamiento final de chunks completado."
+        )
+
+    async def cleanup_session(self):
+        """
+        Limpia todos los recursos de la sesión, incluyendo el directorio de sesión.
+        Espera y verifica que todos los archivos estén cerrados antes de borrar.
+        """
+        logger.info(
+            f"[Worker-{self.streamer}] Iniciando limpieza final del directorio de sesión: {self.stream_session_dir}"
+        )
+
+        self.highlight_buffer.clear()
+
+        if not self.stream_session_dir or not self.stream_session_dir.exists():
+            logger.warning(
+                f"[Worker-{self.streamer}] El directorio de sesión no existe, no hay nada que limpiar."
+            )
+            return
+
+        # Espera breve para asegurar cierre de archivos (especialmente en Windows)
+        await asyncio.sleep(2)
+
+        max_retries = 5
+        retry_delay = 1.0  # segundos
+
+        def _onerror(func, path, exc_info):
+            try:
+                # Quitar bit de solo lectura y reintentar
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+            except Exception:
+                pass
+
+        for attempt in range(max_retries):
+            try:
+                # Borrado granular: elimina archivos primero para ayudar a Windows a liberar locks
+                for root, dirs, files in os.walk(
+                    self.stream_session_dir, topdown=False
+                ):
+                    for name in files:
+                        file_path = Path(root) / name
+                        try:
+                            os.remove(file_path)
+                        except PermissionError:
+                            # Intentar quitar solo-lectura y reintentar
+                            try:
+                                os.chmod(file_path, stat.S_IWRITE)
+                                os.remove(file_path)
+                            except Exception as e:
+                                logger.debug(
+                                    f"No se pudo eliminar archivo en primer paso: {file_path} ({e})"
+                                )
+                        except Exception:
+                            # Ignorar: rmtree con onerror lo manejará
+                            pass
+                    for name in dirs:
+                        dir_path = Path(root) / name
+                        try:
+                            os.rmdir(dir_path)
+                        except Exception:
+                            pass
+
+                shutil.rmtree(self.stream_session_dir, onerror=_onerror)
+                logger.success(
+                    f"[Worker-{self.streamer}] Directorio de sesión {self.stream_session_dir} limpiado exitosamente."
+                )
+                return
+            except OSError as e:
+                logger.error(
+                    f"[Worker-{self.streamer}] Error al limpiar el directorio de sesión (intento {attempt + 1}/{max_retries}): {e}"
+                )
+                if attempt < max_retries - 1:
+                    # Estrategia extra: renombrar la carpeta para soltar locks y programar borrado posterior
+                    try:
+                        pending = self.stream_session_dir.with_name(
+                            self.stream_session_dir.name + "__pending_delete"
+                        )
+                        if self.stream_session_dir.exists() and not pending.exists():
+                            os.rename(self.stream_session_dir, pending)
+                            self.stream_session_dir = pending
+                            logger.warning(
+                                f"[Worker-{self.streamer}] Renombrado a {pending} para reintentar borrado."
+                            )
+                    except Exception:
+                        pass
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.critical(
+                        f"[Worker-{self.streamer}] Fallo persistente al limpiar el directorio de sesión {self.stream_session_dir}."
                     )
+
+    async def _safe_delete(
+        self,
+        path: Path,
+        max_retries: int = 3,
+        retry_delay: float = 0.5,
+    ):
+        if not path.exists():
+            return
+
+        for attempt in range(max_retries):
+            try:
+                os.remove(path)
+                logger.debug(f"Archivo {path.name} limpiado exitosamente.")
+                return
+            except OSError as e:
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"No se pudo eliminar {path.name} (intento {attempt + 1}/{max_retries}): {e}. Reintentando en {retry_delay}s."
+                    )
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error(
+                        f"Fallo final al limpiar el archivo {path.name} después de {max_retries} intentos: {e}"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Error inesperado al intentar eliminar {path.name}: {e}",
+                    exc_info=True,
+                )
+                return

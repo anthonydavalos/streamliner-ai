@@ -1,13 +1,14 @@
 streamers:
-  - "marinagold"
-  - "milenkanolasco"
-  - "mattkeelan"
-  - "zullyy_cs"
-  - "elpadredomingooficiall"
-  - "francovidalalcalde"
-  - "sachauzumaki"
-  - "robertoartigass"
-  - "luisormenoa27"
+  # - "marinagold"
+  # - "milenkanolasco"
+  # - "mattkeelan"
+  # - "zullyy_cs"
+  # - "elpadredomingooficiall"
+  # - "francovidalalcalde"
+  # - "sachauzumaki"
+  # - "robertoartigass"
+  # - "luisormenoa27"
+  - "rageylo"
   # - "otro_streamer"
 
 monitoring:
@@ -15,9 +16,13 @@ monitoring:
   reconnect_delay_seconds: 30
 
 downloader:
-  output_quality: "best"
-  # Directorio base para VODs y clips si STORAGE_TYPE=local
-  local_storage_path: "./data"
+  output_quality: best
+
+paths: # Sección 'paths' consolidada aquí
+  data_dir: data
+  chunks_dir: data/chunks
+  clips_dir: data/clips_generados
+  local_storage_base_dir: data/local_storage_base
 
 detection:
   # Duración (segundos) de los clips a generar
@@ -25,14 +30,14 @@ detection:
   # Umbral de puntuación para considerar un momento como highlight
   hype_score_threshold: 1.5
   # Número máximo de clips a extraer por VOD
-  max_clips_per_vod: 3
+  max_clips_per_vod: 1
   # Umbral de RMS para considerar un pico de audio
   rms_peak_threshold: 0.92
   # Parámetros de la fórmula de scoring
   scoring:
     rms_weight: 0.4
     keyword_weight: 0.6
-    scene_change_boost: 0.2 # Bonus si el pico coincide con un cambio de escena
+    scene_change_boost: 0.2
   # Palabras clave y su "peso" en la puntuación de hype
   keywords:
     # =================================================
@@ -291,6 +296,14 @@ streamer_keywords:
     mattfiosas: 4.0
     euromattfiosas: 4.2
     "lower pepa": 4.5 # Usar comillas si tiene espacios
+    chat: 1.5
+    funhadas: 2.5
+    contenido: 1.0
+    disco: 1.2
+    "3 de octubre": 3.0
+    evento: 2.0
+    god: 2.2
+    colab: 1.8
   marinagold:
     goldie: 4.0
     brillo: 4.2
@@ -350,28 +363,46 @@ streamer_keywords:
 
 transcription:
   # Modelos: tiny, base, small, medium, large-v2, distil-large-v2
-  whisper_model: "base"
+  whisper_model: "small"
   device: "cpu" # "cuda" si tienes una GPU NVIDIA compatible
   compute_type: "int8" # "float16" para GPU
 
 rendering:
   # Ruta al logo que se agregará a los videos. Dejar en blanco para no usar.
   # logo_path: "./assets/logo.png"
-  # Estilo de subtítulos para quemar en el video (formato ASS)
-  subtitle_style: "FontName=Arial,FontSize=12,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=60"
+
+  # Modo de subtítulos:
+  # - "karaoke": genera ASS por palabra con efecto \k y resalta keywords.
+  # - "plain": genera VTT envuelto (1–2 líneas) y aplica estilo por defecto seguro.
+  subtitle_mode: "karaoke"
+
+  # Colores para karaoke (formato ASS &HAABBGGRR)
+  subtitle_color_base: "&H00FFFFFF"      # Blanco base
+  subtitle_color_highlight: "&H0000A5FF" # Naranja TikTok-ish (BBGGRR): A5=165 (G), FF=255 (R)
+
+  # Tamaño y zona segura para subtítulos
+  subtitle_font_size: 92
+  subtitle_safe_margin_v: 350
+
+  # Límites para el modo 'plain' (VTT)
+  subtitle_max_lines_per_cue: 1
+  subtitle_max_chars_per_line: 16
+
+  # Estilo ASS manual (solo si usas 'plain' y quieres forzarlo). En 'karaoke' se ignora.
+  # subtitle_style: "FontName=Arial,FontSize=48,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BackColour=&H80000000,BorderStyle=3,Outline=3,Shadow=0,Alignment=2,WrapStyle=2,MarginV=140"
 
   # CONFIGURACIÓN DEL VIDEO PRINCIPAL (FOREGROUND)
   # Factor de zoom para el video principal.
   # > 1.0 hará zoom (lo hará más grande, recortando los bordes).
   # < 1.0 lo hará más pequeño (mostrando más del fondo desenfocado).
-  # Ejemplo: 1.0 para un 'fit' completo de la altura (con posible recorte lateral para 16:9).
-  #          0.9 para reducir el zoom un 10%.
-  #          1.2 para aumentar el zoom un 20%.
-  fg_zoom_factor: 0.5 # <--- ¡Ajusta este valor! Un valor como 0.9 o 0.95 podría ser lo que buscas.
+  # Ejemplo: 1.0 para un 'fit' completo de la altura; 0.9 reduce un 10%; 1.2 aumenta un 20%.
+  fg_zoom_factor: 0.5 
   
   # Posicionamiento del video principal (solo afecta si no ocupa toda la pantalla)
-  fg_offset_x: "center" # 'center' o un valor numérico (ej. 100 para desplazar a la derecha)
-  fg_offset_y: "center" # 'center' o un valor numérico (ej. -50 para desplazar hacia arriba)
+  # Nota: en el renderer actual, el overlay se centra y estos offsets no se aplican.
+  # Se mantienen por compatibilidad y futuros ajustes de posicionamiento.
+  fg_offset_x: "center" # actualmente ignorado
+  fg_offset_y: "center" # actualmente ignorado
 
 publishing:
   # Plantilla para la descripción del video en TikTok
@@ -379,9 +410,23 @@ publishing:
   description_template: "¡Vaya momento de {streamer_name}! 🤯 #clips #gaming #{streamer_name}"
   # Estrategia de subida: 'PULL_FROM_URL' (recomendado para S3/R2) o 'MULTIPART'
   upload_strategy: "MULTIPART"
+  # Segundos de espera antes de cada intento de subida para evitar rate-limiting.
+  # Recomendado: 5-10 segundos para el modo sandbox.
+  upload_cooldown_seconds: 15
+  # Backoff para MULTIPART en SANDBOX cuando TikTok devuelve spam_risk_too_many_pending_share
+  sandbox_spam_backoff_seconds: 1800
+  # Permitir fallback por bytes (sandbox). Desactivado por defecto porque muchas apps devuelven 403/404 en este endpoint.
+  # Actívalo solo si confirmaste que tu app tiene habilitado /v2/video/upload.
+  sandbox_allow_bytes_upload: false
+  # Permitir fallback de publicación directa en sandbox (requiere scope video.publish en tu token).
+  # Deshabilitado por defecto en sandbox porque muchas apps no tienen este scope permitido.
+  sandbox_allow_direct_post: false
 
 real_time_processing:
   # Duración de cada trozo de video (chunk) en segundos. 30s es un buen balance.
   chunk_duration_seconds: 30
-  # Carpeta dedicada donde se guardarán los chunks mientras se procesan.
-  chunk_storage_path: "./data/chunks"
+  # Número de chunks a mantener en el buffer para detectar highlights.
+  # Un valor de 3 es un buen punto de partida para clips de 45 segundos.
+  highlight_buffer_size: 2
+  # Número mínimo de chunks necesarios en el buffer para iniciar la detección.
+  min_chunks_for_detection: 2
