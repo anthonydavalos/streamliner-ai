@@ -215,6 +215,62 @@ Asegúrate de tener siempre el entorno virtual activado (`source venv/bin/activa
     python -m src.streamliner.cli process --file "ruta/del/video.mp4" --streamer "nombre_streamer" --dry-run
     ```
 
+### 🛰️ Comandos CLI para TikTok (Sandbox y Producción)
+
+Estos comandos permiten probar y operar la publicación de clips en TikTok desde la línea de comandos. Asegúrate de haber configurado la sección de TikTok en `.env` y `config.yaml` antes de usarlos.
+
+- `upload`: sube un archivo local a TikTok según la estrategia configurada.
+    ```bash
+    # Subir un clip local como borrador (inbox) en SANDBOX con estrategia automática
+    python -m src.streamliner.cli upload \
+        --file "data/clips_generados/mi_clip_rendered.mp4" \
+        --streamer "test"
+
+    # Forzar estrategia específica (MULTIPART|BYTES|DIRECT_POST) y deshabilitar fallback
+    python -m src.streamliner.cli upload \
+        --file "data/clips_generados/mi_clip_rendered.mp4" \
+        --streamer "test" \
+        --strategy MULTIPART \
+        --no-fallback
+    ```
+
+- `tiktok-diagnose`: imprime el estado persistente del SANDBOX para evitar reintentos fútiles.
+    ```bash
+    python -m src.streamliner.cli tiktok-diagnose
+    # Ejemplo de salida: {"last_spam_risk_ts": 1758539474.15, "bytes_unavailable": true}
+    ```
+
+- `tiktok-clear-sandbox-state`: limpia el estado persistente del SANDBOX.
+    ```bash
+    python -m src.streamliner.cli tiktok-clear-sandbox-state
+    ```
+
+- `upload-when-ready`: espera el cooldown/backoff y reintenta la subida automáticamente.
+    ```bash
+    python -m src.streamliner.cli upload-when-ready \
+        --file "data/clips_generados/mi_clip_rendered.mp4" \
+        --streamer "test" \
+        --max-wait-seconds 2400 \
+        --poll-interval 20
+    ```
+
+Notas importantes (especialmente en SANDBOX):
+
+- En SANDBOX, la estrategia recomendada es `MULTIPART`. La app maneja automáticamente:
+    - Cálculo de chunks correcto y reintentos puntuales.
+    - Persistencia de backoff ante `spam_risk_too_many_pending_share` (evita spamear INIT).
+    - Confirmación/finalización “best-effort” del inbox publish.
+- El método `BYTES` suele responder `403/404` en SANDBOX si tu app no tiene acceso. Por defecto está deshabilitado vía `config.yaml` y el sistema persiste `bytes_unavailable` tras detectar este caso.
+- `DIRECT_POST` requiere el scope de producción `video.publish` y, típicamente, aprobación de app. En SANDBOX normalmente no está disponible.
+
+Parámetros relevantes en `config.yaml` (sección de publicación):
+
+- `publishing.upload_strategy`: `AUTO`|`MULTIPART`|`BYTES`|`DIRECT_POST`.
+- `publishing.upload_cooldown_seconds`: espera breve antes de iniciar una subida.
+- `publishing.sandbox_spam_backoff_seconds`: backoff ante `spam_risk` en SANDBOX.
+- `publishing.sandbox_allow_bytes_upload`: `false` por defecto (BYTES deshabilitado en SANDBOX).
+- `publishing.sandbox_allow_direct_post`: `false` por defecto.
+
 ## 🐳 Despliegue con Docker
 
 Docker simplifica el despliegue al empaquetar la aplicación con todas sus dependencias (incluyendo `ffmpeg`).
