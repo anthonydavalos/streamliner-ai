@@ -27,17 +27,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Install Python dependencies
+      - name: Set up venv and install deps
         run: |
+          python -m venv .venv
+          source .venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pytest-asyncio pytest-mock ruff
 
       - name: Lint and Format Check with Ruff
         run: |
+          source .venv/bin/activate
           ruff check .
           ruff format --check .
 
-      - name: Run tests with Pytest
+      - name: Run tests with Pytest (venv)
+        env:
+          PYTHONPATH: src
         run: |
-          PYTHONPATH=src pytest
+          source .venv/bin/activate
+          python -m pytest -q

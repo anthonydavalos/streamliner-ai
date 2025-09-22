@@ -21,3 +21,11 @@ where = ["src"] # Le dice a setuptools que busque paquetes dentro de 'src'
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+# Asegura que pytest pueda resolver tanto imports tipo 'streamliner.cutter'
+# como 'cutter'/'detector' sin crear shims en la raíz del repo.
+pythonpath = [
+    "src",
+    "src/streamliner",
+]
