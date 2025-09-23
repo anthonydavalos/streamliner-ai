@@ -89,7 +89,29 @@ class ProcessingWorker:
         logger.info(
             f"[Worker-{self.streamer}] Añadiendo chunk al buffer: {chunk_path.name}"
         )
+        # Si el buffer está lleno, deque(maxlen) expulsará automáticamente el más antiguo
+        # al hacer append. Capturamos ese path ANTES del append para poder
+        # eliminar también el archivo en disco y evitar dejar huérfanos.
+        orphan_chunk: Path | None = None
+        try:
+            if (
+                self.highlight_buffer.maxlen is not None
+                and len(self.highlight_buffer) == self.highlight_buffer.maxlen
+                and len(self.highlight_buffer) > 0
+            ):
+                orphan_chunk = self.highlight_buffer[0]
+        except Exception:
+            # En caso de cualquier problema al leer el primer elemento, seguimos sin borrar.
+            orphan_chunk = None
+
         self.highlight_buffer.append(chunk_path)
+
+        # Si hubo un expulsado automático, eliminar su archivo en disco de forma segura
+        if orphan_chunk is not None and orphan_chunk.exists():
+            logger.info(
+                f"Buffer lleno. Chunk expulsado automáticamente: {orphan_chunk.name}. Eliminando del disco."
+            )
+            await self._safe_delete(orphan_chunk)
 
         # La lógica de offset debe considerar que el buffer no siempre se vacía por completo.
         # Es más preciso calcular el offset del chunk actual en relación con el inicio de la grabación.
@@ -216,19 +238,6 @@ class ProcessingWorker:
                 await self._safe_delete(audio_path)
             if combined_video_path_for_detection.exists():
                 await self._safe_delete(combined_video_path_for_detection)
-
-            # --- NUEVA LÓGICA DE LIMPIEZA ---
-            # Si el buffer está lleno, el chunk más antiguo ya no es necesario
-            # para la siguiente ventana de detección, así que lo eliminamos.
-            # El buffer `deque` con `maxlen` expulsa automáticamente el elemento más antiguo.
-            # Necesitamos una forma de saber cuál fue expulsado.
-            # Una forma más simple es limpiar el primer chunk si el buffer está lleno.
-            if len(self.highlight_buffer) == self.highlight_buffer.maxlen:
-                chunk_to_remove = self.highlight_buffer.popleft()
-                logger.info(
-                    f"Buffer lleno. Limpiando chunk más antiguo: {chunk_to_remove.name}"
-                )
-                await self._safe_delete(chunk_to_remove)
             # Señalar que el análisis terminó
             self._analysis_task = None
 
